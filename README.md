@@ -1,6 +1,6 @@
 # 🌐 Fediverse - Decentralized Social Network
 
-A **federated microblogging platform** built from scratch using the **W3C ActivityPub** protocol. Inspired by platforms like **Mastodon** , this project enables independent servers to communicate while allowing users to own their data and interact seamlessly across the Fediverse.
+A **federated microblogging platform** built  using the **W3C ActivityPub** protocol. Inspired by platforms like **Mastodon** , this project enables independent servers to communicate while allowing users to own their data and interact seamlessly across the Fediverse.
 
 The project is being developed as a complete ActivityPub-compatible social network, featuring local social networking capabilities, federation, real-time notifications, remote account discovery, and secure cryptographic communication between servers.
 

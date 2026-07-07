@@ -11,6 +11,11 @@ export const useAuthStore = create(
       // Call this after login/register
       setAuth: (user, token) => set({ user, token }),
 
+      updateUser: (updates) =>
+        set((state) => ({
+          user: state.user ? { ...state.user, ...updates } : updates,
+        })),
+
       // Call this on logout
       logout: () => set({ user: null, token: null }),
     }),

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, AtSign, Eye, EyeOff, Globe, Lock, Mail, User } from 'lucide-react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, AtSign, Eye, EyeOff, Globe, Lock, Mail, Server, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../lib/axios';
 import { useAuthStore } from '../store/authStore';
@@ -14,7 +14,11 @@ function getAuthPayload(data) {
 
 export default function Register() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const setAuth = useAuthStore((state) => state.setAuth);
+  const selectedServer = location.state?.selectedServer;
+  const serverDomain = selectedServer?.domain || searchParams.get('server') || 'fediverse.local';
   const [form, setForm] = useState({
     name: '',
     username: '',
@@ -78,6 +82,7 @@ export default function Register() {
         username: form.username.trim().replace(/^@/, ''),
         email: form.email.trim(),
         password: form.password,
+        server: serverDomain,
       });
       const { user, token } = getAuthPayload(data);
 
@@ -85,7 +90,12 @@ export default function Register() {
         throw new Error('Registration succeeded but no token was returned.');
       }
 
-      setAuth(user, token);
+      setAuth(user || {
+        name: form.name.trim(),
+        username: form.username.trim().replace(/^@/, ''),
+        email: form.email.trim(),
+        server: serverDomain,
+      }, token);
       toast.success('Account created');
       navigate('/home');
     } catch (err) {
@@ -127,9 +137,29 @@ export default function Register() {
               Create an account for a network you can actually leave.
             </h1>
             <p className="text-lg leading-relaxed text-zinc-400">
-              Choose a handle, start posting, and keep the door open to the wider
-              Fediverse from day one.
+              Your home server is part of your public identity. Your handle will
+              appear as @{form.username.trim().replace(/^@/, '') || 'username'}@{serverDomain}.
             </p>
+            <div className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
+                  <Server size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-zinc-500">Selected server</p>
+                  <p className="truncate font-semibold text-white">
+                    {selectedServer?.name || serverDomain}
+                  </p>
+                  <p className="text-sm text-zinc-500">{serverDomain}</p>
+                </div>
+                <Link
+                  to="/servers"
+                  className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-blue-300"
+                >
+                  Change
+                </Link>
+              </div>
+            </div>
           </div>
 
           <form
@@ -176,6 +206,9 @@ export default function Register() {
                     className="w-full bg-transparent text-white outline-none placeholder:text-zinc-600"
                     placeholder="karthik"
                   />
+                </span>
+                <span className="mt-2 block truncate text-xs text-zinc-500">
+                  @{form.username.trim().replace(/^@/, '') || 'username'}@{serverDomain}
                 </span>
               </label>
             </div>

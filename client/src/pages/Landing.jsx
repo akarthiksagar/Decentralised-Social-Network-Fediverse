@@ -256,9 +256,9 @@ export default function Landing() {
     <div className="min-h-screen bg-black">
       <Navbar
         onLogin={() => navigate('/login')}
-        onRegister={() => navigate('/register')}
+        onRegister={() => navigate('/servers')}
       />
-      <Hero onRegister={() => navigate('/register')} />
+      <Hero onRegister={() => navigate('/servers')} />
       <Features />
       <HowItWorks />
       <Footer />

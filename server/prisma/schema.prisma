@@ -4,10 +4,217 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  username     String
+  email        String   @unique
+  passwordHash String
+  server       String   @default("fediverse.local")
+  actorUrl     String   @unique
+  inboxUrl     String?
+  outboxUrl    String?
+  publicKeyPem String?
+  privateKeyPem String?
+  bio          String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  posts        Post[]
+  following    Follow[] @relation("UserFollowing")
+  followers    Follow[] @relation("UserFollowers")
+  remoteFollowers RemoteFollow[]
+  remoteFollowing RemoteFollowing[]
+  deliveryTasks DeliveryTask[]
+  notifications Notification[]
+
+  @@unique([username, server])
+  @@index([server])
+}
+
+model Post {
+  id         String         @id @default(cuid())
+  content    String
+  visibility PostVisibility @default(PUBLIC)
+
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  remoteAuthorId String?
+  remoteAuthor   RemoteActor? @relation(fields: [remoteAuthorId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   Post?  @relation("PostReplies", fields: [parentId], references: [id])
+  replies  Post[] @relation("PostReplies")
+
+  activityId String  @unique
+  remoteUrl  String?
+  isLocal    Boolean @default(true)
+
+  replyCount Int @default(0)
+  likeCount  Int @default(0)
+  boostCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([remoteAuthorId])
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+enum PostVisibility {
+  PUBLIC
+  UNLISTED
+  FOLLOWERS
+  DIRECT
+}
+
+model Follow {
+  id          String       @id @default(cuid())
+  followerId  String
+  followingId String
+  status      FollowStatus @default(ACCEPTED)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  follower  User @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+  @@index([followerId])
+}
+
+enum FollowStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model RemoteActor {
+  id           String   @id @default(cuid())
+  actorUrl     String   @unique
+  username     String
+  server       String
+  inboxUrl     String?
+  outboxUrl    String?
+  publicKeyPem String?
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  posts          Post[]
+  inboundFollows RemoteFollow[]
+  localFollowers RemoteFollowing[]
+
+  @@index([server])
+}
+
+model RemoteFollow {
+  id            String       @id @default(cuid())
+  remoteActorId String
+  userId        String
+  activityId    String?      @unique
+  status        FollowStatus @default(ACCEPTED)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  remoteActor RemoteActor @relation(fields: [remoteActorId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([remoteActorId, userId])
+  @@index([userId])
+}
+
+model RemoteFollowing {
+  id            String       @id @default(cuid())
+  userId        String
+  remoteActorId String
+  activityId    String?      @unique
+  status        FollowStatus @default(PENDING)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  remoteActor RemoteActor @relation(fields: [remoteActorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, remoteActorId])
+  @@index([userId])
+  @@index([remoteActorId])
+}
+
+model FederationActivity {
+  id         String            @id @default(cuid())
+  activityId String?           @unique
+  type       String
+  actorUrl   String?
+  direction  ActivityDirection
+  raw        Json
+  createdAt  DateTime          @default(now())
+
+  @@index([type])
+  @@index([actorUrl])
+  @@index([direction])
+}
+
+model DeliveryTask {
+  id         String         @id @default(cuid())
+  activityId String?
+  inboxUrl   String
+  actorId    String
+  status     DeliveryStatus @default(PENDING)
+  attempts   Int            @default(0)
+  lastError  String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  actor User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([actorId])
+  @@index([activityId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  actorUrl  String?
+  title     String
+  body      String?
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+enum ActivityDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum NotificationType {
+  FOLLOW
+  ACCEPT
+  POST
+  MENTION
+  SYSTEM
 }

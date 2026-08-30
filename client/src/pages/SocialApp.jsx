@@ -787,9 +787,44 @@ function Composer({ currentUser, onPublish, placeholder = 'What is happening acr
 }
 
 function PostCard({ post, initiallyBookmarked = false, showThreadLink = true }) {
-  const [liked, setLiked] = useState(false);
+  const [liked, setLiked] = useState(Boolean(post.isLiked));
+  const [likeCount, setLikeCount] = useState(post.likes || 0);
+  const [isLiking, setIsLiking] = useState(false);
   const [bookmarked, setBookmarked] = useState(post.isBookmarked || initiallyBookmarked);
   const [isBookmarking, setIsBookmarking] = useState(false);
+
+  useEffect(() => {
+    setLiked(Boolean(post.isLiked));
+    setLikeCount(post.likes || 0);
+  }, [post.id, post.isLiked, post.likes]);
+
+  const toggleLike = async () => {
+    if (!post.id || isLiking) return;
+
+    const nextValue = !liked;
+    setLiked(nextValue);
+    setLikeCount((current) => Math.max(0, current + (nextValue ? 1 : -1)));
+    setIsLiking(true);
+
+    try {
+      const { data } = nextValue
+        ? await api.post(`/posts/${post.id}/like`)
+        : await api.delete(`/posts/${post.id}/like`);
+
+      setLiked(Boolean(data.liked));
+      if (typeof data.likes === 'number') setLikeCount(data.likes);
+    } catch (err) {
+      setLiked(!nextValue);
+      setLikeCount((current) => Math.max(0, current + (nextValue ? -1 : 1)));
+      toast.error(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          'Unable to update like.'
+      );
+    } finally {
+      setIsLiking(false);
+    }
+  };
 
   const toggleBookmark = async () => {
     if (!post.id || isBookmarking) return;
@@ -886,14 +921,19 @@ function PostCard({ post, initiallyBookmarked = false, showThreadLink = true }) 
             </button>
             <button
               type="button"
-              onClick={() => setLiked((value) => !value)}
+              onClick={toggleLike}
+              disabled={isLiking}
               className={`flex items-center gap-2 text-sm transition ${
                 liked ? 'text-rose-400' : 'hover:text-rose-400'
-              }`}
-              aria-label="Like"
+              } disabled:cursor-not-allowed disabled:opacity-50`}
+              aria-label={liked ? 'Unlike' : 'Like'}
             >
-              <Heart size={18} fill={liked ? 'currentColor' : 'none'} />
-              <span>{post.likes + (liked ? 1 : 0)}</span>
+              {isLiking ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Heart size={18} fill={liked ? 'currentColor' : 'none'} />
+              )}
+              <span>{likeCount}</span>
             </button>
             <button
               type="button"

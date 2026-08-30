@@ -14,6 +14,7 @@ import {
   createNotification,
   truncateNotificationBody,
 } from '../services/notification.service.js';
+import { discoverRemoteActor } from '../services/remoteDiscovery.service.js';
 import { serializeCreateActivity } from '../utils/activitypub.js';
 import { getJwtSecret } from '../utils/auth.js';
 
@@ -82,6 +83,20 @@ export function getPostInclude(viewerId = null) {
 function normalizeVisibility(value) {
   const visibility = String(value || 'PUBLIC').toUpperCase();
   return ALLOWED_VISIBILITY.has(visibility) ? visibility : 'PUBLIC';
+}
+
+async function getDeliverableInbox(remoteActor) {
+  if (remoteActor?.inboxUrl) return remoteActor.inboxUrl;
+  if (!remoteActor?.actorUrl) return null;
+
+  try {
+    const { remoteActor: resolvedActor } = await discoverRemoteActor({
+      actorUrl: remoteActor.actorUrl,
+    });
+    return resolvedActor.inboxUrl || null;
+  } catch {
+    return null;
+  }
 }
 
 router.get('/', async (req, res, next) => {
@@ -245,21 +260,21 @@ router.post('/', authenticate, async (req, res, next) => {
         where: {
           userId: actor.id,
           status: 'ACCEPTED',
-          remoteActor: {
-            inboxUrl: { not: null },
-          },
         },
         include: { remoteActor: true },
       });
 
       await Promise.allSettled(
-        remoteFollowers.map((follow) =>
-          enqueueActivityDelivery({
+        remoteFollowers.map(async (follow) => {
+          const inboxUrl = await getDeliverableInbox(follow.remoteActor);
+          if (!inboxUrl) return null;
+
+          return enqueueActivityDelivery({
             actor,
-            inboxUrl: follow.remoteActor.inboxUrl,
+            inboxUrl,
             activity,
-          })
-        )
+          });
+        })
       );
     }
 

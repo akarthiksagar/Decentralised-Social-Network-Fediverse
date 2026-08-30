@@ -14,6 +14,7 @@ import {
   createNotification,
   truncateNotificationBody,
 } from '../services/notification.service.js';
+import { discoverRemoteActor } from '../services/remoteDiscovery.service.js';
 import {
   buildActorUrls,
   serializeActor,
@@ -82,28 +83,45 @@ async function recordInboundActivity(activity) {
 }
 
 async function upsertRemoteActor(actorUrl, object = {}) {
+  const actorDocument = object && typeof object === 'object' ? object : {};
+  const hasUsefulActorDocument =
+    typeof actorDocument.inbox === 'string' ||
+    typeof actorDocument.outbox === 'string' ||
+    typeof actorDocument?.publicKey?.publicKeyPem === 'string';
+
+  if (!hasUsefulActorDocument) {
+    try {
+      const { remoteActor } = await discoverRemoteActor({ actorUrl });
+      return remoteActor;
+    } catch {
+      // Fall back to storing the actor URL so the activity is still recorded.
+    }
+  }
+
   const parsed = parseActorUrl(actorUrl);
   const publicKeyPem =
-    typeof object?.publicKey?.publicKeyPem === 'string' ? object.publicKey.publicKeyPem : undefined;
+    typeof actorDocument?.publicKey?.publicKeyPem === 'string'
+      ? actorDocument.publicKey.publicKeyPem
+      : undefined;
 
   return prisma.remoteActor.upsert({
     where: { actorUrl },
     update: {
       username: parsed.username,
       server: parsed.server,
-      inboxUrl: typeof object?.inbox === 'string' ? object.inbox : undefined,
-      outboxUrl: typeof object?.outbox === 'string' ? object.outbox : undefined,
+      inboxUrl: typeof actorDocument?.inbox === 'string' ? actorDocument.inbox : undefined,
+      outboxUrl: typeof actorDocument?.outbox === 'string' ? actorDocument.outbox : undefined,
       publicKeyPem,
-      name: typeof object?.name === 'string' ? object.name : undefined,
+      name: typeof actorDocument?.name === 'string' ? actorDocument.name : undefined,
     },
     create: {
       actorUrl,
       username: parsed.username,
       server: parsed.server,
-      inboxUrl: typeof object?.inbox === 'string' ? object.inbox : undefined,
-      outboxUrl: typeof object?.outbox === 'string' ? object.outbox : undefined,
+      inboxUrl: typeof actorDocument?.inbox === 'string' ? actorDocument.inbox : undefined,
+      outboxUrl: typeof actorDocument?.outbox === 'string' ? actorDocument.outbox : undefined,
       publicKeyPem,
-      name: typeof object?.name === 'string' ? object.name : parsed.username,
+      name: typeof actorDocument?.name === 'string' ? actorDocument.name : parsed.username,
     },
   });
 }

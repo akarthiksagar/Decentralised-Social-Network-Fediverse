@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/authenticate.js';
-import { serializePost } from './post.routes.js';
+import { getPostInclude, serializePost } from './post.routes.js';
 
 const router = Router();
 const DEFAULT_LIMIT = 20;
@@ -20,7 +20,7 @@ router.get('/', authenticate, async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
       include: {
         post: {
-          include: { author: true, remoteAuthor: true },
+          include: getPostInclude(req.user.id),
         },
       },
     });

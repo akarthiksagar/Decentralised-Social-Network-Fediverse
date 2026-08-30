@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { ensureActivityPubIdentity } from '../services/actor.service.js';
@@ -8,6 +9,7 @@ import {
   recordOutboundActivity,
 } from '../services/delivery.service.js';
 import { serializeCreateActivity } from '../utils/activitypub.js';
+import { getJwtSecret } from '../utils/auth.js';
 
 const router = Router();
 const MAX_POST_LENGTH = 500;
@@ -37,8 +39,37 @@ export function serializePost(post) {
     reposts: post.boostCount,
     likes: post.likeCount,
     isLocal: post.isLocal,
+    isLiked: Boolean(post.likes?.length),
     activityId: post.activityId,
     parentId: post.parentId,
+  };
+}
+
+function getViewerId(req) {
+  try {
+    const header = req.headers.authorization;
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) return null;
+
+    const payload = jwt.verify(token, getJwtSecret());
+    return payload.sub || null;
+  } catch {
+    return null;
+  }
+}
+
+export function getPostInclude(viewerId = null) {
+  return {
+    author: true,
+    remoteAuthor: true,
+    ...(viewerId
+      ? {
+          likes: {
+            where: { userId: viewerId },
+            select: { id: true },
+          },
+        }
+      : {}),
   };
 }
 
@@ -49,6 +80,7 @@ function normalizeVisibility(value) {
 
 router.get('/', async (req, res, next) => {
   try {
+    const viewerId = getViewerId(req);
     const requestedLimit = Number(req.query.limit) || DEFAULT_LIMIT;
     const limit = Math.min(Math.max(requestedLimit, 1), MAX_LIMIT);
     const cursor = req.query.cursor ? String(req.query.cursor) : null;
@@ -57,7 +89,7 @@ router.get('/', async (req, res, next) => {
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       orderBy: { createdAt: 'desc' },
-      include: { author: true, remoteAuthor: true },
+      include: getPostInclude(viewerId),
     });
 
     const hasMore = posts.length > limit;
@@ -66,6 +98,74 @@ router.get('/', async (req, res, next) => {
     return res.json({
       posts: visiblePosts.map(serializePost),
       nextCursor: hasMore ? visiblePosts[visiblePosts.length - 1]?.id : null,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:postId/like', authenticate, async (req, res, next) => {
+  try {
+    const postId = String(req.params.postId);
+    const post = await prisma.post.findUnique({ where: { id: postId } });
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found.' });
+    }
+
+    let liked = true;
+    let updatedPost = post;
+
+    try {
+      await prisma.like.create({
+        data: {
+          userId: req.user.id,
+          postId,
+        },
+      });
+      updatedPost = await prisma.post.update({
+        where: { id: postId },
+        data: { likeCount: { increment: 1 } },
+      });
+    } catch (error) {
+      if (error.code !== 'P2002') throw error;
+      liked = true;
+    }
+
+    return res.status(201).json({
+      liked,
+      likes: updatedPost.likeCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/:postId/like', authenticate, async (req, res, next) => {
+  try {
+    const postId = String(req.params.postId);
+    const deleted = await prisma.like.deleteMany({
+      where: {
+        userId: req.user.id,
+        postId,
+      },
+    });
+
+    let post = await prisma.post.findUnique({ where: { id: postId } });
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found.' });
+    }
+
+    if (deleted.count > 0) {
+      post = await prisma.post.update({
+        where: { id: postId },
+        data: { likeCount: { decrement: post.likeCount > 0 ? 1 : 0 } },
+      });
+    }
+
+    return res.json({
+      liked: false,
+      likes: post.likeCount,
     });
   } catch (error) {
     next(error);

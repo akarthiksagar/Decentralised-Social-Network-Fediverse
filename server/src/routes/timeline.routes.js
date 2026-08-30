@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/authenticate.js';
-import { serializePost } from './post.routes.js';
+import { getPostInclude, serializePost } from './post.routes.js';
 
 const router = Router();
 const DEFAULT_LIMIT = 20;
@@ -59,7 +59,7 @@ router.get('/home', authenticate, async (req, res, next) => {
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       orderBy: { createdAt: 'desc' },
-      include: { author: true, remoteAuthor: true },
+      include: getPostInclude(req.user.id),
     });
 
     const hasMore = posts.length > limit;

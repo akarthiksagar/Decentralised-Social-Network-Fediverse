@@ -34,6 +34,7 @@ model User {
   deliveryTasks DeliveryTask[]
   notifications Notification[]
   bookmarks Bookmark[]
+  likes Like[]
 
   @@unique([username, server])
   @@index([server])
@@ -65,6 +66,7 @@ model Post {
   updatedAt DateTime @updatedAt
 
   bookmarks Bookmark[]
+  likes     Like[]
 
   @@index([authorId])
   @@index([remoteAuthorId])
@@ -203,6 +205,20 @@ model Notification {
 }
 
 model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId, createdAt])
+  @@index([postId])
+}
+
+model Like {
   id        String   @id @default(cuid())
   userId    String
   postId    String

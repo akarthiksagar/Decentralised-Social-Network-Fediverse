@@ -6,7 +6,7 @@ import {
   parseRemoteHandle,
   serializeRemoteActor,
 } from '../services/remoteDiscovery.service.js';
-import { serializePost } from './post.routes.js';
+import { getPostInclude, serializePost } from './post.routes.js';
 
 const router = Router();
 const DEFAULT_LIMIT = 10;
@@ -73,7 +73,7 @@ router.get('/', authenticate, async (req, res, next) => {
         },
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { author: true, remoteAuthor: true },
+        include: getPostInclude(req.user.id),
       }),
     ]);
 

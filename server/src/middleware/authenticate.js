@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../db.js';
+import { getJwtSecret } from '../utils/auth.js';
 
 export async function authenticate(req, res, next) {
   try {
@@ -10,7 +11,7 @@ export async function authenticate(req, res, next) {
       return res.status(401).json({ message: 'Authentication token is required.' });
     }
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'change-this-development-secret');
+    const payload = jwt.verify(token, getJwtSecret());
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
 
     if (!user) {

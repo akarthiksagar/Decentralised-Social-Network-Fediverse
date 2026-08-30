@@ -37,7 +37,7 @@ function validateProfile({ name, username, bio }) {
 
 router.post('/register', async (req, res, next) => {
   try {
-     const name = String(req.body.name || '').trim();
+    const name = String(req.body.name || '').trim();
     const username = normalizeUsername(req.body.username);
     const email = normalizeEmail(req.body.email);
     const server = normalizeServer(req.body.server);

@@ -3,7 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import authRoutes from './routes/auth.routes.js';
+import bookmarkRoutes from './routes/bookmark.routes.js';
 import followRoutes from './routes/follow.routes.js';
+import instanceRoutes from './routes/instance.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import postRoutes from './routes/post.routes.js';
 import searchRoutes from './routes/search.routes.js';
@@ -13,10 +15,36 @@ import webfingerRoutes from './routes/webfinger.routes.js';
 
 export const app = express();
 
+function getAllowedOrigins() {
+  const origins = [process.env.CLIENT_URL, process.env.CLIENT_URLS]
+    .filter(Boolean)
+    .flatMap((value) => value.split(','))
+    .map((origin) => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+  return [...new Set(origins)];
+}
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (process.env.NODE_ENV !== 'production' && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+    return true;
+  }
+
+  const allowedOrigins = getAllowedOrigins();
+  if (!allowedOrigins.length) return process.env.NODE_ENV !== 'production';
+
+  return allowedOrigins.includes(origin.replace(/\/$/, ''));
+}
+
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || true,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      return callback(new Error('Not allowed by CORS.'));
+    },
     credentials: true,
   })
 );
@@ -26,7 +54,7 @@ app.use(
     type: ['application/json', 'application/activity+json', 'application/ld+json'],
     verify: (req, res, buffer) => {
       req.rawBody = buffer;
-    },
+    }
   })
 );
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
@@ -36,7 +64,9 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/auth', authRoutes);
+app.use('/bookmarks', bookmarkRoutes);
 app.use('/follows', followRoutes);
+app.use('/instance', instanceRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/posts', postRoutes);
 app.use('/search', searchRoutes);

@@ -14,7 +14,6 @@ export async function createNotification(prisma, { userId, type, actorUrl, title
     },
   });
   publishNotification(userId, serializeNotification(notification));
-
   return notification;
 }
 

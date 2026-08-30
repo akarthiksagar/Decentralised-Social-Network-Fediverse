@@ -6,6 +6,7 @@ import {
   serializeNotification,
   subscribeToNotifications,
 } from '../services/notification.service.js';
+import { getJwtSecret } from '../utils/auth.js';
 
 const router = Router();
 const DEFAULT_LIMIT = 30;
@@ -22,7 +23,7 @@ async function authenticateStream(req, res) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'change-this-development-secret');
+    const payload = jwt.verify(token, getJwtSecret());
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
 
     if (!user) {

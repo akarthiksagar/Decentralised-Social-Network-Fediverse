@@ -1154,6 +1154,7 @@ function ThreadMetadataPanel({ post }) {
 export function ThreadPage() {
   const { postId } = useParams();
   const navigate = useNavigate();
+  const currentUser = useCurrentUser();
   const [post, setPost] = useState(null);
   const [replies, setReplies] = useState([]);
   const [isLoading, setIsLoading] = useState(true);

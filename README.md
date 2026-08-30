@@ -77,7 +77,8 @@ The project is being developed as a complete ActivityPub-compatible social netwo
 - Communities
 - Bookmarks
 - Settings
-- Server selection interface
+- Dynamic server selection interface
+- User-submitted instance directory
 
 ---
 
@@ -231,6 +232,17 @@ GET /search
 
 ---
 
+## Instance Directory
+
+```
+GET  /instances
+POST /instances
+```
+
+`GET /instances` returns the current server plus verified directory entries. `POST /instances` accepts an `apiUrl`, verifies that the server exposes `/health` and `/instance`, then stores it so future users can pick it from the frontend.
+
+---
+
 ## ActivityPub
 
 ```
@@ -336,6 +348,18 @@ npm run worker
 ```
 
 ---
+
+# 🌍 Adding More Servers
+
+Deploy the backend again on another domain with its own PostgreSQL database, Redis instance, `PUBLIC_BASE_URL`, `LOCAL_DOMAIN`, and `INSTANCE_NAME`.
+
+After it is live, open the frontend server-selection page and add the new backend API URL, for example:
+
+```text
+https://fediverse-api-two.onrender.com
+```
+
+The directory API verifies the new server, saves it in PostgreSQL, and the frontend remembers it locally. This means users can register or log in against any verified server without rebuilding the frontend every time a new instance is added.
 
 
 ---

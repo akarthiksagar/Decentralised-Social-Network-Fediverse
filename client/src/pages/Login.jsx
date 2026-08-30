@@ -1,9 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Eye, EyeOff, Globe, Lock, Mail, Server } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../lib/axios';
-import { findServerByDomain, getDefaultServer, servers } from '../lib/servers';
+import {
+  findServerByDomain,
+  getAvailableServers,
+  getDefaultServer,
+  mergeServers,
+  rememberServers,
+  servers,
+} from '../lib/servers';
 import { useAuthStore } from '../store/authStore';
 
 function getAuthPayload(data) {
@@ -17,6 +24,7 @@ export default function Login() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((state) => state.setAuth);
   const storedServer = useAuthStore((state) => state.selectedServer);
+  const [availableServers, setAvailableServers] = useState(getAvailableServers);
   const [selectedServer, setSelectedServer] = useState(
     storedServer?.domain ? findServerByDomain(storedServer.domain) : getDefaultServer()
   );
@@ -33,6 +41,36 @@ export default function Login() {
     }));
     setError('');
   };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadDirectory() {
+      try {
+        const { data } = await api.get('/instances', {
+          baseURL: getDefaultServer().apiUrl,
+        });
+        const mergedServers = rememberServers(mergeServers(data.servers || [], servers));
+
+        if (isMounted) {
+          setAvailableServers(mergedServers);
+          setSelectedServer((current) =>
+            current
+              ? mergedServers.find((server) => server.domain === current.domain) || current
+              : mergedServers[0]
+          );
+        }
+      } catch {
+        if (isMounted) setAvailableServers(getAvailableServers());
+      }
+    }
+
+    loadDirectory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -128,13 +166,13 @@ export default function Login() {
                 <select
                   value={selectedServer.domain}
                   onChange={(event) => {
-                    const server = servers.find((item) => item.domain === event.target.value);
+                    const server = availableServers.find((item) => item.domain === event.target.value);
                     setSelectedServer(server || getDefaultServer());
                     setError('');
                   }}
                   className="w-full bg-black text-white outline-none"
                 >
-                  {servers.map((server) => (
+                  {availableServers.map((server) => (
                     <option key={server.id} value={server.domain}>
                       {server.name} ({server.domain})
                     </option>

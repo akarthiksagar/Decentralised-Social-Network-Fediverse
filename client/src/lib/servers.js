@@ -1,6 +1,17 @@
 const defaultApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-const defaultDomain =
-  import.meta.env.VITE_SERVER_DOMAIN || new URL(defaultApiUrl).hostname || 'localhost';
+const knownServersStorageKey = 'knownServers';
+
+function getDefaultDomain() {
+  if (import.meta.env.VITE_SERVER_DOMAIN) return import.meta.env.VITE_SERVER_DOMAIN;
+
+  try {
+    return new URL(defaultApiUrl).hostname;
+  } catch {
+    return 'localhost';
+  }
+}
+
+const defaultDomain = getDefaultDomain();
 const defaultName = import.meta.env.VITE_SERVER_NAME || defaultDomain;
 
 export function normalizeApiUrl(apiUrl) {
@@ -19,7 +30,7 @@ function parseServerDirectory() {
   }
 }
 
-function normalizeServer(server, index = 0) {
+export function normalizeServer(server, index = 0) {
   const domain = server.domain || server.id || defaultDomain;
 
   return {
@@ -55,10 +66,53 @@ export const servers = (
 
 export const categories = ['All', ...new Set(servers.map((server) => server.category))];
 
+export function mergeServers(...serverGroups) {
+  const seen = new Set();
+
+  return serverGroups
+    .flat()
+    .filter(Boolean)
+    .map(normalizeServer)
+    .filter((server) => {
+      const key = `${server.domain}|${server.apiUrl}`;
+      if (seen.has(server.domain) || seen.has(server.apiUrl) || seen.has(key)) return false;
+      seen.add(server.domain);
+      seen.add(server.apiUrl);
+      seen.add(key);
+      return true;
+    });
+}
+
+export function getKnownServers() {
+  if (typeof localStorage === 'undefined') return [];
+
+  try {
+    const savedServers = JSON.parse(localStorage.getItem(knownServersStorageKey) || '[]');
+    return Array.isArray(savedServers) ? savedServers.map(normalizeServer) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberServers(serverList) {
+  const mergedServers = mergeServers(serverList, getKnownServers());
+
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(knownServersStorageKey, JSON.stringify(mergedServers));
+  }
+
+  return mergedServers;
+}
+
+export function getAvailableServers() {
+  return mergeServers(getKnownServers(), servers);
+}
+
 export function findServerByDomain(domain) {
-  return servers.find((server) => server.domain === domain) || servers[0];
+  const availableServers = getAvailableServers();
+  return availableServers.find((server) => server.domain === domain) || availableServers[0];
 }
 
 export function getDefaultServer() {
-  return servers[0];
+  return getAvailableServers()[0] || servers[0];
 }

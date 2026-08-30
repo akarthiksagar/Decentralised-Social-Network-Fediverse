@@ -5,12 +5,22 @@ import {
   ArrowRight,
   Check,
   Globe,
+  Loader2,
+  Plus,
   Search,
   Server,
   Sparkles,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import api from '../lib/axios';
-import { categories, servers } from '../lib/servers';
+import {
+  getAvailableServers,
+  getDefaultServer,
+  mergeServers,
+  normalizeServer,
+  rememberServers,
+  servers as configuredServers,
+} from '../lib/servers';
 
 function ServerAvatar({ server }) {
   return (
@@ -73,13 +83,24 @@ export default function ServerSelection() {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All');
-  const [selectedServer, setSelectedServer] = useState(servers[0]);
+  const [directoryServers, setDirectoryServers] = useState(getAvailableServers);
+  const [selectedServer, setSelectedServer] = useState(getDefaultServer);
   const [healthStatus, setHealthStatus] = useState('checking');
+  const [isLoadingDirectory, setIsLoadingDirectory] = useState(true);
+  const [directoryError, setDirectoryError] = useState('');
+  const [newApiUrl, setNewApiUrl] = useState('');
+  const [newCategory, setNewCategory] = useState('Server');
+  const [isSubmittingServer, setIsSubmittingServer] = useState(false);
+
+  const categories = useMemo(
+    () => ['All', ...new Set(directoryServers.map((server) => server.category))],
+    [directoryServers]
+  );
 
   const filteredServers = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return servers.filter((server) => {
+    return directoryServers.filter((server) => {
       const matchesCategory = category === 'All' || server.category === category;
       const matchesQuery =
         !normalizedQuery ||
@@ -89,9 +110,11 @@ export default function ServerSelection() {
 
       return matchesCategory && matchesQuery;
     });
-  }, [category, query]);
+  }, [category, directoryServers, query]);
 
   const continueToRegister = () => {
+    if (!selectedServer) return;
+
     navigate(`/register?server=${encodeURIComponent(selectedServer.domain)}`, {
       state: { selectedServer },
     });
@@ -100,7 +123,81 @@ export default function ServerSelection() {
   useEffect(() => {
     let isMounted = true;
 
+    async function loadDirectory() {
+      setIsLoadingDirectory(true);
+      setDirectoryError('');
+
+      try {
+        const { data } = await api.get('/instances', {
+          baseURL: getDefaultServer().apiUrl,
+        });
+        const mergedServers = rememberServers(mergeServers(data.servers || [], configuredServers));
+
+        if (isMounted) {
+          setDirectoryServers(mergedServers);
+          setSelectedServer((current) =>
+            current
+              ? mergedServers.find((server) => server.domain === current.domain) || mergedServers[0]
+              : mergedServers[0]
+          );
+        }
+      } catch {
+        if (isMounted) {
+          setDirectoryServers(getAvailableServers());
+          setDirectoryError('Using configured servers because the directory API is unavailable.');
+        }
+      } finally {
+        if (isMounted) setIsLoadingDirectory(false);
+      }
+    }
+
+    loadDirectory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const submitServer = async (event) => {
+    event.preventDefault();
+    const apiUrl = newApiUrl.trim();
+
+    if (!apiUrl || isSubmittingServer) return;
+
+    setIsSubmittingServer(true);
+    setDirectoryError('');
+
+    try {
+      const { data } = await api.post(
+        '/instances',
+        {
+          apiUrl,
+          category: newCategory.trim() || 'Server',
+        },
+        { baseURL: getDefaultServer().apiUrl }
+      );
+      const submittedServer = normalizeServer(data.server);
+      const mergedServers = rememberServers(mergeServers([submittedServer], directoryServers));
+      setDirectoryServers(mergedServers);
+      setSelectedServer(submittedServer);
+      setNewApiUrl('');
+      toast.success('Server added to directory');
+    } catch (err) {
+      setDirectoryError(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          'Unable to verify and add that server.'
+      );
+    } finally {
+      setIsSubmittingServer(false);
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
     async function checkHealth() {
+      if (!selectedServer) return;
       setHealthStatus('checking');
 
       try {
@@ -163,6 +260,44 @@ export default function ServerSelection() {
               </label>
             </div>
 
+            {directoryError && (
+              <div className="mb-5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {directoryError}
+              </div>
+            )}
+
+            <form
+              onSubmit={submitServer}
+              className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950 p-4"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <Plus size={18} className="text-blue-400" />
+                <h2 className="font-bold text-white">Add a server</h2>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_44px]">
+                <input
+                  value={newApiUrl}
+                  onChange={(event) => setNewApiUrl(event.target.value)}
+                  className="rounded-lg border border-zinc-800 bg-black px-3 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-blue-500"
+                  placeholder="https://api.your-server.com"
+                />
+                <input
+                  value={newCategory}
+                  onChange={(event) => setNewCategory(event.target.value)}
+                  className="rounded-lg border border-zinc-800 bg-black px-3 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-blue-500"
+                  placeholder="Category"
+                />
+                <button
+                  type="submit"
+                  disabled={!newApiUrl.trim() || isSubmittingServer}
+                  className="flex h-11 items-center justify-center rounded-lg bg-blue-500 text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Add server"
+                >
+                  {isSubmittingServer ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+                </button>
+              </div>
+            </form>
+
             <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
               {categories.map((item) => (
                 <button
@@ -181,18 +316,29 @@ export default function ServerSelection() {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2">
-              {filteredServers.map((server) => (
+              {isLoadingDirectory ? (
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-500">
+                  Loading server directory...
+                </div>
+              ) : filteredServers.length ? (
+                filteredServers.map((server) => (
                 <ServerCard
                   key={server.id}
                   server={server}
-                  selected={selectedServer.id === server.id}
+                  selected={selectedServer?.id === server.id}
                   onSelect={setSelectedServer}
                 />
-              ))}
+                ))
+              ) : (
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-500">
+                  No servers match your search.
+                </div>
+              )}
             </div>
           </div>
 
           <aside className="lg:sticky lg:top-6 lg:self-start">
+            {selectedServer && (
             <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
               <div className="mb-5 flex items-center gap-3">
                 <ServerAvatar server={selectedServer} />
@@ -247,6 +393,7 @@ export default function ServerSelection() {
                 <ArrowRight size={18} />
               </button>
             </section>
+            )}
           </aside>
         </section>
       </div>

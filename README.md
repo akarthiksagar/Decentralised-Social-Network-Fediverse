@@ -1,131 +1,346 @@
-# Decentralised Social Network Fediverse
+# 🌐 Fediverse - Decentralized Social Network
 
-A modern decentralized social media platform built with ActivityPub, allowing users on independent servers to communicate, follow each other, and share content across the Fediverse while maintaining data ownership and privacy.
+A **federated microblogging platform** built  using the **W3C ActivityPub** protocol. Inspired by platforms like **Mastodon** , this project enables independent servers to communicate while allowing users to own their data and interact seamlessly across the Fediverse.
 
-## Project Structure
+The project is being developed as a complete ActivityPub-compatible social network, featuring local social networking capabilities, federation, real-time notifications, remote account discovery, and secure cryptographic communication between servers.
 
-- `client/` - React + Vite frontend.
-- `server/` - Express API, Prisma/PostgreSQL, ActivityPub federation, BullMQ worker.
+---
 
-## Deployment Overview
+## ✨ Features
 
-Deploy this as three processes/services:
+### 🔐 Authentication
+- User registration and login
+- JWT-based authentication
+- Password hashing with bcrypt
+- Profile editing
+- Server (instance) selection during registration
 
-1. API server: `server`, runs `npm start`.
-2. Federation worker: `server`, runs `npm run worker`.
-3. Frontend: `client`, static build from `npm run build`.
+### 👤 User Management
+- User profiles
+- Local and remote user discovery
+- Edit profile
+- Follow / Unfollow users
+- Remote account lookup
 
-You also need:
+### 📝 Posts
+- Create posts
+- Public timelines
+- Personalized home timeline
+- Infinite scrolling
+- Reply support (foundation)
+- Visibility levels
 
-- PostgreSQL database.
-- Redis instance for BullMQ federation delivery.
+### 🌍 Federation (ActivityPub)
+- ActivityPub Actor endpoints
+- WebFinger discovery
+- Inbox / Outbox endpoints
+- Remote actor discovery
+- Remote account following
+- Remote unfollow (`Undo`)
+- Remote post ingestion
+- Remote timeline integration
 
-## Server Deployment
+### 🔒 Secure Federation
+- RSA key pair generation per user
+- HTTP Signature verification
+- HTTP Signature generation
+- SHA-256 Digest verification
+- Signed ActivityPub requests
 
-Set the service root/build directory to `server`.
+### ⚡ Background Processing
+- BullMQ job queues
+- Redis-backed asynchronous federation
+- Delivery retries
+- Background ActivityPub message delivery
 
-Install/build command:
+### 🔔 Notifications
+- Local notifications
+- Federation notifications
+- Real-time notifications using Server-Sent Events (SSE)
+- Mark as read
+- Mark all as read
 
-```bash
-npm install
-npm run build
-npm run prisma:push
+### 🔍 Search
+- Local user search
+- Remote account lookup
+- Cross-instance search
+- Post search
+- WebFinger-based discovery
+
+### 🎨 Frontend
+- Modern React UI
+- Responsive layout
+- Home feed
+- Explore page
+- Profile page
+- Notifications
+- Communities
+- Bookmarks
+- Settings
+- Server selection interface
+
+---
+
+# 🏗 Architecture
+
+```
+                   ┌──────────────────────────┐
+                   │       React Client       │
+                   └────────────┬─────────────┘
+                                │
+                         REST + SSE APIs
+                                │
+        ┌───────────────────────┼────────────────────────┐
+        │                       │                        │
+        ▼                       ▼                        ▼
+ Authentication           Post Service          Timeline Service
+        │                       │                        │
+        └──────────────┬────────┴──────────────┬────────┘
+                       │                       │
+                       ▼                       ▼
+                ActivityPub Layer       Notification Service
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+        HTTP Signatures     WebFinger
+              │                 │
+              ▼                 ▼
+        BullMQ Worker     Remote Discovery
+              │
+              ▼
+        Remote Instances
 ```
 
-Start command:
+---
 
-```bash
-npm start
+# 🚀 Tech Stack
+
+## Frontend
+
+- React
+- React Router
+- Tailwind CSS
+- Axios
+- Zustand
+
+## Backend
+
+- Node.js
+- Express.js
+- Prisma ORM
+- PostgreSQL
+
+## Federation
+
+- ActivityPub
+- WebFinger
+- HTTP Signatures
+- RSA Cryptography
+
+## Queue
+
+- Redis
+- BullMQ
+
+## Authentication
+
+- JWT
+- bcrypt
+
+---
+
+
+# 🔄 ActivityPub Implementation
+
+Implemented federation components include:
+
+- ✅ WebFinger
+- ✅ ActivityPub Actor
+- ✅ Inbox
+- ✅ Outbox
+- ✅ HTTP Signatures
+- ✅ RSA Key Generation
+- ✅ Remote Actor Discovery
+- ✅ Remote Follow
+- ✅ Remote Unfollow (Undo)
+- ✅ Remote Post Delivery
+- ✅ Signed Federation Requests
+- ✅ BullMQ Delivery Queue
+
+---
+
+# 🔌 Implemented API Endpoints
+
+## Authentication
+
+```
+POST   /auth/register
+POST   /auth/login
+GET    /auth/me
+PATCH  /auth/me
 ```
 
-Worker command, as a separate background worker service:
+---
 
-```bash
-npm run worker
+## Posts
+
+```
+GET    /posts
+POST   /posts
 ```
 
-For the first deployment this project uses `prisma db push` because migrations have not been created yet. After the schema stabilizes, create migrations locally and switch deployment to:
+---
 
-```bash
-npm run prisma:deploy
+## Timeline
+
+```
+GET /timeline/home
 ```
 
-## Server Environment Variables
+---
 
-Copy `server/.env.example` into your deployment platform and replace the values:
+## Follow
 
-- `DATABASE_URL`
-- `REDIS_URL`
-- `PUBLIC_BASE_URL`
-- `CLIENT_URL`
-- `CLIENT_URLS`
-- `JWT_SECRET`
-- `SERVER_DOMAIN`
-- `LOCAL_DOMAIN`
-- `INSTANCE_NAME`
-- `INSTANCE_RULES`
-- `REGISTRATIONS_OPEN`
+```
+POST   /follows/:userId
+DELETE /follows/:userId
 
-For production federation, use HTTPS URLs and keep `REQUIRE_HTTP_SIGNATURES=true`.
-
-## Frontend Deployment
-
-Set the service root/build directory to `client`.
-
-Build command:
-
-```bash
-npm install
-npm run build
+GET    /follows/remote/lookup
+POST   /follows/remote
+DELETE /follows/remote/:remoteActorId
 ```
 
-Publish directory:
+---
 
-```bash
-dist
+## Notifications
+
+```
+GET    /notifications
+PATCH  /notifications/:id/read
+POST   /notifications/read-all
+GET    /notifications/stream
 ```
 
-Set:
+---
 
-```bash
-VITE_API_URL=https://your-api-domain.example
-VITE_SERVER_NAME=Your Server Name
-VITE_SERVER_DOMAIN=your-server.example
+## Search
+
+```
+GET /search
 ```
 
-For multiple real backend instances, set `VITE_SERVER_DIRECTORY` to JSON containing only deployed servers:
+---
 
-```bash
-VITE_SERVER_DIRECTORY=[{"name":"Main Social","domain":"main.example","apiUrl":"https://api.main.example","category":"General","registrations":"Open"}]
+## ActivityPub
+
+```
+GET  /.well-known/webfinger
+
+GET  /users/:username
+
+GET  /users/:username/outbox
+
+POST /users/:username/inbox
 ```
 
-The frontend includes static-host rewrites for React Router:
+---
 
-- `client/public/_redirects` for Netlify-style hosts.
-- `client/vercel.json` for Vercel.
+# 🔐 Federation Flow
 
-## Local Development
+```
+Remote Account Search
+        │
+        ▼
+WebFinger Discovery
+        │
+        ▼
+Fetch Actor Document
+        │
+        ▼
+Store Remote Actor
+        │
+        ▼
+Send Signed Follow
+        │
+        ▼
+Remote Inbox
+        │
+        ▼
+Accept Activity
+        │
+        ▼
+Store Relationship
+        │
+        ▼
+Receive Remote Posts
+        │
+        ▼
+Update Home Timeline
+```
 
-Run the API:
+---
+
+# ⚙️ Getting Started
+
+## Clone
+
+```bash
+git clone https://github.com/akarthiksagar/Fediverse.git
+cd Fediverse
+```
+
+---
+
+## Backend
 
 ```bash
 cd server
+
 npm install
-npm run prisma:push
-npm start
+
+npx prisma generate
+
+npx prisma db push
+
+npm run dev
 ```
 
-Run the federation worker:
+---
 
-```bash
-cd server
-npm run worker
-```
-
-Run the frontend:
+## Frontend
 
 ```bash
 cd client
+
 npm install
+
 npm run dev
 ```
+
+---
+
+## Start Redis
+
+```bash
+redis-server
+```
+
+---
+
+## Start Worker
+
+```bash
+cd server
+
+npm run worker
+```
+
+---
+
+
+---
+
+
+## 👨‍💻 Author
+
+**A. Karthik Sagar**

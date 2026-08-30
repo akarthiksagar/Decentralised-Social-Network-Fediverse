@@ -1,27 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useInView } from 'react-intersection-observer';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import {
+  Activity,
+  ArrowLeft,
   AtSign,
+  Ban,
   Bell,
   Bookmark,
   Compass,
+  Database,
+  Gauge,
   Globe,
   Heart,
   Home as HomeIcon,
   Image,
   Loader2,
-  Lock,
   LogOut,
   MessageCircle,
   MoreHorizontal,
+  RadioTower,
   Repeat2,
   Search,
   Send,
+  Server as ServerIcon,
   Settings,
   Share,
   Shield,
-  Sparkles,
   User,
   UserMinus,
   UserPlus,
@@ -29,57 +34,14 @@ import {
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '../lib/axios';
+import api, { getActiveApiUrl } from '../lib/axios';
+import { servers as configuredServers } from '../lib/servers';
 import { useAuthStore } from '../store/authStore';
-
-const initialPosts = [
-  {
-    id: 1,
-    author: 'Maya Chen',
-    username: 'maya',
-    server: 'social.dev',
-    time: '12m',
-    accent: 'bg-cyan-500',
-    body:
-      'Moved our moderation queue to a shared inbox today. Reports from remote instances now arrive with enough context to act quickly.',
-    tags: ['ActivityPub', 'moderation'],
-    replies: 18,
-    reposts: 42,
-    likes: 184,
-  },
-  {
-    id: 2,
-    author: 'Arun Patel',
-    username: 'arun',
-    server: 'indieweb.social',
-    time: '37m',
-    accent: 'bg-emerald-500',
-    body:
-      'Federation feels less abstract once you follow one person from a tiny art server and another from a huge tech server in the same feed.',
-    tags: ['fediverse'],
-    replies: 9,
-    reposts: 21,
-    likes: 96,
-  },
-  {
-    id: 3,
-    author: 'Nora Kim',
-    username: 'nora',
-    server: 'pixel.town',
-    time: '1h',
-    accent: 'bg-fuchsia-500',
-    body:
-      'Shipping a small profile polish pass tonight: better preview cards, softer media borders, and a cleaner remote-follow prompt.',
-    tags: ['design', 'release'],
-    replies: 31,
-    reposts: 65,
-    likes: 302,
-  },
-];
 
 const navItems = [
   { label: 'Home', icon: HomeIcon, path: '/home' },
   { label: 'Explore', icon: Compass, path: '/explore' },
+  { label: 'Instance', icon: ServerIcon, path: '/instance' },
   { label: 'Notifications', icon: Bell, path: '/notifications' },
   { label: 'Communities', icon: Users, path: '/communities' },
   { label: 'Bookmarks', icon: Bookmark, path: '/bookmarks' },
@@ -87,75 +49,13 @@ const navItems = [
   { label: 'Settings', icon: Settings, path: '/settings' },
 ];
 
-const trends = [
-  { topic: 'ActivityPub', posts: '18.2K posts', change: '+12%' },
-  { topic: 'Open source', posts: '11.7K posts', change: '+8%' },
-  { topic: 'Self hosting', posts: '7.4K posts', change: '+5%' },
-  { topic: 'Digital gardens', posts: '4.9K posts', change: '+3%' },
-];
+const trends = [];
+const communities = [];
+const FOLLOWING_CHANGED_EVENT = 'fediverse:following-changed';
 
-const suggestions = [
-  { name: 'Elena Ross', handle: '@elena@mastodon.art', accent: 'bg-rose-500' },
-  { name: 'Sam Rivera', handle: '@sam@fosstodon.org', accent: 'bg-amber-500' },
-  { name: 'Ishan Mehta', handle: '@ishan@social.coop', accent: 'bg-indigo-500' },
-];
-
-const fallbackNotifications = [
-  {
-    id: 1,
-    icon: Heart,
-    accent: 'text-rose-400',
-    title: 'Maya Chen liked your post',
-    detail: 'Shipping federation without losing the small-community feel.',
-    time: '8m',
-  },
-  {
-    id: 2,
-    icon: Repeat2,
-    accent: 'text-emerald-400',
-    title: 'Arun Patel boosted your post',
-    detail: 'Remote follows are now working across test instances.',
-    time: '24m',
-  },
-  {
-    id: 3,
-    icon: UserPlus,
-    accent: 'text-blue-400',
-    title: 'Nora Kim followed you',
-    detail: '@nora@pixel.town can now see your public posts.',
-    time: '1h',
-  },
-];
-
-const communities = [
-  {
-    name: 'Fediverse Builders',
-    handle: '@builders@social.dev',
-    members: '24.8K',
-    description: 'Protocol design, instance operations, and open social tooling.',
-    accent: 'bg-cyan-500',
-  },
-  {
-    name: 'Indie Web',
-    handle: '@indieweb@indieweb.social',
-    members: '18.1K',
-    description: 'Personal sites, webmentions, identity, and portable publishing.',
-    accent: 'bg-emerald-500',
-  },
-  {
-    name: 'Digital Artists',
-    handle: '@artists@mastodon.art',
-    members: '42.5K',
-    description: 'Illustration, pixel art, generative art, and creative process.',
-    accent: 'bg-fuchsia-500',
-  },
-];
-
-const serverDirectory = [
-  { name: 'social.dev', focus: 'Software and open web', users: '82K users' },
-  { name: 'mastodon.art', focus: 'Artists and visual culture', users: '234K users' },
-  { name: 'fosstodon.org', focus: 'Free software community', users: '76K users' },
-];
+function notifyFollowingChanged() {
+  window.dispatchEvent(new CustomEvent(FOLLOWING_CHANGED_EVENT));
+}
 
 function getInitials(name = 'Guest User') {
   return name
@@ -182,12 +82,10 @@ function useCurrentUser() {
 
   return useMemo(
     () => ({
-      name: user?.name || user?.username || 'Karthik',
-      username: user?.username || 'karthik',
-      server: user?.server || 'fediverse.local',
-      bio:
-        user?.bio ||
-        'Building a decentralized social network with portable identity and calmer timelines.',
+      name: user?.name || user?.username || 'Signed out',
+      username: user?.username || 'user',
+      server: user?.server || 'server',
+      bio: user?.bio || '',
     }),
     [user]
   );
@@ -258,6 +156,7 @@ function RemoteAccountSearch({ compact = false }) {
         actorUrl: result.actorUrl,
       });
       setResult(data.actor);
+      notifyFollowingChanged();
       toast.success(`Following ${data.actor.handle}`);
     } catch (err) {
       toast.error(
@@ -284,6 +183,7 @@ function RemoteAccountSearch({ compact = false }) {
             }
           : current
       );
+      notifyFollowingChanged();
       toast.success(`Unfollowed ${result.handle}`);
     } catch (err) {
       toast.error(
@@ -415,6 +315,7 @@ function FederatedSearch() {
           item.id === person.id ? { ...item, followingStatus: 'ACCEPTED' } : item
         ),
       }));
+      notifyFollowingChanged();
       toast.success(`Following ${person.handle}`);
     } catch (err) {
       toast.error(
@@ -440,6 +341,7 @@ function FederatedSearch() {
           item.id === person.id ? data.actor : item
         ),
       }));
+      notifyFollowingChanged();
       toast.success(`Following ${data.actor.handle}`);
     } catch (err) {
       toast.error(
@@ -463,6 +365,7 @@ function FederatedSearch() {
           item.id === person.id ? { ...item, followingStatus: null } : item
         ),
       }));
+      notifyFollowingChanged();
       toast.success(`Unfollowed ${person.handle}`);
     } catch (err) {
       toast.error(
@@ -614,7 +517,7 @@ function PersonSearchRow({
 }
 
 function RightRail() {
-  const [people, setPeople] = useState(suggestions);
+  const [people, setPeople] = useState([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -628,9 +531,9 @@ function RightRail() {
             index % 5
           ],
         }));
-        if (isMounted && users.length) setPeople(users);
+        if (isMounted) setPeople(users);
       } catch {
-        if (isMounted) setPeople(suggestions);
+        if (isMounted) setPeople([]);
       }
     }
 
@@ -652,6 +555,7 @@ function RightRail() {
       setPeople((current) =>
         current.filter((item) => (person.id ? item.id !== person.id : item.handle !== person.handle))
       );
+      notifyFollowingChanged();
       toast.success(`Following ${person.name}`);
     } catch (err) {
       toast.error(
@@ -665,32 +569,31 @@ function RightRail() {
       <div className="sticky top-0 space-y-4 py-4">
         <RemoteAccountSearch compact />
 
+        {configuredServers.length > 0 && (
         <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-bold text-white">Trending</h2>
-            <Sparkles size={18} className="text-blue-400" />
+            <h2 className="font-bold text-white">Configured servers</h2>
+            <ServerIcon size={18} className="text-blue-400" />
           </div>
           <div className="divide-y divide-zinc-900">
-            {trends.map((trend) => (
-              <button
-                key={trend.topic}
-                type="button"
-                className="flex w-full items-center justify-between gap-4 py-3 text-left transition hover:text-blue-300"
-              >
+            {configuredServers.map((server) => (
+              <div key={server.id} className="flex items-center justify-between gap-4 py-3">
                 <span>
-                  <span className="block text-sm font-semibold text-white">#{trend.topic}</span>
-                  <span className="text-xs text-zinc-500">{trend.posts}</span>
+                  <span className="block text-sm font-semibold text-white">{server.name}</span>
+                  <span className="text-xs text-zinc-500">{server.domain}</span>
                 </span>
-                <span className="text-xs font-semibold text-emerald-400">{trend.change}</span>
-              </button>
+                <span className="text-xs text-zinc-500">{server.registrations}</span>
+              </div>
             ))}
           </div>
         </section>
+        )}
 
         <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
           <h2 className="mb-3 font-bold text-white">Who to follow</h2>
-          <div className="space-y-4">
-            {people.map((person) => (
+          {people.length ? (
+            <div className="space-y-4">
+              {people.map((person) => (
               <div key={person.handle || person.id} className="flex items-center gap-3">
                 <Avatar name={person.name} accent={person.accent} size="h-10 w-10" />
                 <div className="min-w-0 flex-1">
@@ -706,8 +609,11 @@ function RightRail() {
                   <UserPlus size={16} />
                 </button>
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">No suggestions from this server yet.</p>
+          )}
         </section>
       </div>
     </aside>
@@ -813,7 +719,7 @@ function AppShell({ children }) {
   );
 }
 
-function Composer({ currentUser, onPublish }) {
+function Composer({ currentUser, onPublish, placeholder = 'What is happening across your network?' }) {
   const [text, setText] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
   const remaining = 280 - text.length;
@@ -840,7 +746,7 @@ function Composer({ currentUser, onPublish }) {
             onChange={(event) => setText(event.target.value.slice(0, 280))}
             rows={4}
             className="min-h-28 w-full resize-none bg-transparent text-lg text-white outline-none placeholder:text-zinc-600"
-            placeholder="What is happening across your network?"
+            placeholder={placeholder}
           />
           <div className="flex items-center justify-between border-t border-zinc-900 pt-3">
             <div className="flex items-center gap-2 text-zinc-500">
@@ -880,9 +786,37 @@ function Composer({ currentUser, onPublish }) {
   );
 }
 
-function PostCard({ post, initiallyBookmarked = false }) {
+function PostCard({ post, initiallyBookmarked = false, showThreadLink = true }) {
   const [liked, setLiked] = useState(false);
-  const [bookmarked, setBookmarked] = useState(initiallyBookmarked);
+  const [bookmarked, setBookmarked] = useState(post.isBookmarked || initiallyBookmarked);
+  const [isBookmarking, setIsBookmarking] = useState(false);
+
+  const toggleBookmark = async () => {
+    if (!post.id || isBookmarking) return;
+
+    const nextValue = !bookmarked;
+    setBookmarked(nextValue);
+    setIsBookmarking(true);
+
+    try {
+      if (nextValue) {
+        await api.post(`/bookmarks/${post.id}`);
+        toast.success('Post bookmarked');
+      } else {
+        await api.delete(`/bookmarks/${post.id}`);
+        toast.success('Bookmark removed');
+      }
+    } catch (err) {
+      setBookmarked(!nextValue);
+      toast.error(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          'Unable to update bookmark.'
+      );
+    } finally {
+      setIsBookmarking(false);
+    }
+  };
 
   return (
     <article className="border-b border-zinc-800 bg-black p-4 transition hover:bg-zinc-950">
@@ -911,7 +845,7 @@ function PostCard({ post, initiallyBookmarked = false }) {
           <p className="mt-2 leading-relaxed text-zinc-200">{post.body}</p>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            {post.tags.map((tag) => (
+            {(post.tags || []).map((tag) => (
               <button
                 key={tag}
                 type="button"
@@ -923,14 +857,25 @@ function PostCard({ post, initiallyBookmarked = false }) {
           </div>
 
           <div className="mt-4 grid grid-cols-5 text-zinc-500">
-            <button
-              type="button"
-              className="flex items-center gap-2 text-sm transition hover:text-blue-400"
-              aria-label="Reply"
-            >
-              <MessageCircle size={18} />
-              <span>{post.replies}</span>
-            </button>
+            {showThreadLink ? (
+              <Link
+                to={`/posts/${post.id}`}
+                className="flex items-center gap-2 text-sm transition hover:text-blue-400"
+                aria-label="Open post thread"
+              >
+                <MessageCircle size={18} />
+                <span>{post.replies}</span>
+              </Link>
+            ) : (
+              <button
+                type="button"
+                className="flex items-center gap-2 text-sm transition hover:text-blue-400"
+                aria-label="Reply"
+              >
+                <MessageCircle size={18} />
+                <span>{post.replies}</span>
+              </button>
+              )}
             <button
               type="button"
               className="flex items-center gap-2 text-sm transition hover:text-emerald-400"
@@ -952,13 +897,18 @@ function PostCard({ post, initiallyBookmarked = false }) {
             </button>
             <button
               type="button"
-              onClick={() => setBookmarked((value) => !value)}
+              onClick={toggleBookmark}
+              disabled={isBookmarking}
               className={`flex items-center gap-2 text-sm transition ${
                 bookmarked ? 'text-blue-400' : 'hover:text-blue-400'
-              }`}
-              aria-label="Bookmark"
+              } disabled:cursor-not-allowed disabled:opacity-50`}
+              aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark'}
             >
-              <Bookmark size={18} fill={bookmarked ? 'currentColor' : 'none'} />
+              {isBookmarking ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Bookmark size={18} fill={bookmarked ? 'currentColor' : 'none'} />
+              )}
             </button>
             <button
               type="button"
@@ -968,6 +918,15 @@ function PostCard({ post, initiallyBookmarked = false }) {
               <Share size={18} />
             </button>
           </div>
+
+          {showThreadLink && (
+            <Link
+              to={`/posts/${post.id}`}
+              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-blue-400 transition hover:text-blue-300"
+            >
+              Open thread
+            </Link>
+          )}
         </div>
       </div>
     </article>
@@ -1013,10 +972,10 @@ export function HomePage() {
           }
         } catch {
           if (isMounted) {
-            setPosts(initialPosts);
+            setPosts([]);
             setNextCursor(null);
-            setFeedSource('sample');
-            setFeedError('Showing sample posts because the feed API is unavailable.');
+            setFeedSource('public');
+            setFeedError('Unable to load posts from this server.');
           }
         }
       } finally {
@@ -1126,6 +1085,168 @@ export function HomePage() {
   );
 }
 
+function ThreadMetadataPanel({ post }) {
+  return (
+    <section className="border-b border-zinc-800 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <RadioTower size={18} className="text-blue-400" />
+        <h2 className="font-bold text-white">Federation metadata</h2>
+      </div>
+      <div className="divide-y divide-zinc-900 rounded-lg border border-zinc-800 bg-zinc-950">
+        {[
+          ['Origin', post.isLocal ? 'Local' : 'Remote'],
+          ['Visibility', post.visibility || 'Unknown'],
+          ['Actor', post.actorUrl || `@${post.username}@${post.server}`],
+          ['Activity ID', post.activityId || 'Not available'],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 p-3">
+            <div className="min-w-0">
+              <p className="text-xs text-zinc-500">{label}</p>
+              <p className="truncate text-sm font-semibold text-white">{value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function ThreadPage() {
+  const { postId } = useParams();
+  const navigate = useNavigate();
+  const [post, setPost] = useState(null);
+  const [replies, setReplies] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadThread() {
+      setIsLoading(true);
+      setNotice('');
+
+      try {
+        const { data } = await api.get('/posts?limit=50');
+        const posts = data.posts || [];
+        const selectedPost = posts.find((item) => String(item.id) === String(postId));
+
+        if (isMounted) {
+          if (selectedPost) {
+            setPost(selectedPost);
+            setReplies(posts.filter((item) => String(item.parentId) === String(selectedPost.id)));
+          } else {
+            setPost(null);
+            setReplies([]);
+            setNotice('This post is not available from the selected server.');
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setPost(null);
+          setReplies([]);
+          setNotice('Unable to load this thread from the selected server.');
+        }
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+
+    loadThread();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [postId]);
+
+  const publishReply = async (body) => {
+    if (!post) return false;
+
+    try {
+      const { data } = await api.post('/posts', {
+        content: body,
+        visibility: 'PUBLIC',
+        parentId: post.id,
+      });
+      setReplies((current) => [...current, data.post]);
+      setPost((current) =>
+        current ? { ...current, replies: (current.replies || 0) + 1 } : current
+      );
+      toast.success('Reply published');
+      return true;
+    } catch (err) {
+      toast.error(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          'Unable to publish reply.'
+      );
+      return false;
+    }
+  };
+
+  return (
+    <AppShell>
+      <PageHeader
+        title="Thread"
+        subtitle={post ? `@${post.username}@${post.server}` : 'Conversation'}
+        action={
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="rounded-full border border-zinc-700 p-2 text-zinc-300 transition hover:border-blue-500 hover:text-blue-300"
+            aria-label="Go back"
+          >
+            <ArrowLeft size={17} />
+          </button>
+        }
+      />
+
+      {notice && (
+        <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          {notice}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="p-6 text-center text-sm text-zinc-500">Loading thread...</div>
+      ) : post ? (
+        <>
+          <PostCard post={post} showThreadLink={false} />
+          <ThreadMetadataPanel post={post} />
+          <Composer
+            currentUser={currentUser}
+            onPublish={publishReply}
+            placeholder={`Reply to @${post.username}@${post.server}`}
+          />
+
+          <section className="border-b border-zinc-800 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-bold text-white">Replies</h2>
+              <span className="text-sm text-zinc-500">{replies.length} visible</span>
+            </div>
+          </section>
+
+          {replies.length ? (
+            replies.map((reply) => (
+              <PostCard key={reply.id} post={reply} showThreadLink={false} />
+            ))
+          ) : (
+            <div className="p-8 text-center">
+              <p className="font-semibold text-white">No replies yet</p>
+              <p className="mt-2 text-sm text-zinc-500">Start the conversation from this server.</p>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="p-8 text-center">
+          <p className="font-semibold text-white">Post not found</p>
+          <p className="mt-2 text-sm text-zinc-500">This conversation is not available locally.</p>
+        </div>
+      )}
+    </AppShell>
+  );
+}
+
 export function ExplorePage() {
   return (
     <AppShell>
@@ -1134,8 +1255,9 @@ export function ExplorePage() {
 
       <section className="border-b border-zinc-800 p-4">
         <h2 className="mb-3 font-bold">Trending tags</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {trends.map((trend) => (
+        {trends.length ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {trends.map((trend) => (
             <button
               key={trend.topic}
               type="button"
@@ -1144,23 +1266,28 @@ export function ExplorePage() {
               <span className="block font-semibold text-white">#{trend.topic}</span>
               <span className="mt-1 block text-sm text-zinc-500">{trend.posts}</span>
             </button>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-500">
+            No trending tags are available from this server yet.
+          </div>
+        )}
       </section>
 
       <section className="p-4">
-        <h2 className="mb-3 font-bold">Server directory</h2>
+        <h2 className="mb-3 font-bold">Configured servers</h2>
         <div className="divide-y divide-zinc-900 rounded-lg border border-zinc-800 bg-zinc-950">
-          {serverDirectory.map((server) => (
-            <div key={server.name} className="flex items-center gap-4 p-4">
+          {configuredServers.map((server) => (
+            <div key={server.id} className="flex items-center gap-4 p-4">
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-500/10 text-blue-400">
                 <Globe size={20} />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-white">{server.name}</p>
-                <p className="text-sm text-zinc-500">{server.focus}</p>
+                <p className="text-sm text-zinc-500">{server.domain}</p>
               </div>
-              <span className="text-sm text-zinc-500">{server.users}</span>
+              <span className="text-sm text-zinc-500">{server.registrations}</span>
             </div>
           ))}
         </div>
@@ -1189,7 +1316,7 @@ export function NotificationsPage() {
         }
       } catch {
         if (isMounted) {
-          setItems(fallbackNotifications);
+          setItems([]);
           setUnreadCount(0);
         }
       } finally {
@@ -1207,7 +1334,7 @@ export function NotificationsPage() {
   useEffect(() => {
     if (!token) return undefined;
 
-    const baseUrl = (api.defaults.baseURL || 'http://localhost:3000').replace(/\/$/, '');
+    const baseUrl = getActiveApiUrl();
     const stream = new EventSource(
       `${baseUrl}/notifications/stream?token=${encodeURIComponent(token)}`
     );
@@ -1348,8 +1475,9 @@ export function CommunitiesPage() {
   return (
     <AppShell>
       <PageHeader title="Communities" subtitle="Groups and instances you may want to join" />
-      <div className="divide-y divide-zinc-800">
-        {communities.map((community) => (
+      {communities.length ? (
+        <div className="divide-y divide-zinc-800">
+          {communities.map((community) => (
           <article key={community.handle} className="flex gap-4 p-4 transition hover:bg-zinc-950">
             <Avatar name={community.name} accent={community.accent} size="h-12 w-12" />
             <div className="min-w-0 flex-1">
@@ -1369,19 +1497,73 @@ export function CommunitiesPage() {
               <p className="mt-2 text-xs text-zinc-500">{community.members} members</p>
             </div>
           </article>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="p-8 text-center">
+          <p className="font-semibold text-white">No communities available</p>
+          <p className="mt-2 text-sm text-zinc-500">
+            This server does not expose a communities directory yet.
+          </p>
+        </div>
+      )}
     </AppShell>
   );
 }
 
 export function BookmarksPage() {
+  const [posts, setPosts] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadBookmarks() {
+      setIsLoading(true);
+      setError('');
+
+      try {
+        const { data } = await api.get('/bookmarks?limit=30');
+        if (isMounted) setPosts(data.posts || []);
+      } catch (err) {
+        if (isMounted) {
+          setError(
+            err.response?.data?.message ||
+              err.response?.data?.error ||
+              'Unable to load bookmarks.'
+          );
+        }
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+
+    loadBookmarks();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <AppShell>
       <PageHeader title="Bookmarks" subtitle="Posts saved for later" />
-      {initialPosts.slice(0, 2).map((post) => (
-        <PostCard key={post.id} post={post} initiallyBookmarked />
-      ))}
+      {error && (
+        <div className="border-b border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {error}
+        </div>
+      )}
+      {isLoading ? (
+        <div className="p-6 text-center text-sm text-zinc-500">Loading bookmarks...</div>
+      ) : posts.length ? (
+        posts.map((post) => <PostCard key={post.id} post={post} initiallyBookmarked />)
+      ) : (
+        <div className="p-8 text-center">
+          <p className="font-semibold text-white">No bookmarks yet</p>
+          <p className="mt-2 text-sm text-zinc-500">Save posts from your feed to find them here.</p>
+        </div>
+      )}
     </AppShell>
   );
 }
@@ -1392,37 +1574,39 @@ function FollowingPanel({ onCountChange }) {
   const [isLoading, setIsLoading] = useState(true);
   const [removingId, setRemovingId] = useState('');
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadFollowing = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setIsLoading(true);
 
-    async function loadFollowing() {
-      setIsLoading(true);
-
-      try {
-        const { data } = await api.get('/follows/following/list');
-        if (isMounted) {
-          setLocalUsers(data.users || []);
-          setRemoteUsers(data.remoteUsers || []);
-        }
-      } catch (err) {
-        if (isMounted) {
-          toast.error(
-            err.response?.data?.message ||
-              err.response?.data?.error ||
-              'Unable to load following list.'
-          );
-        }
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
+    try {
+      const { data } = await api.get('/follows/following/list');
+      setLocalUsers(data.users || []);
+      setRemoteUsers(data.remoteUsers || []);
+    } catch (err) {
+      toast.error(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          'Unable to load following list.'
+      );
+    } finally {
+      if (!silent) setIsLoading(false);
     }
+  }, []);
 
+  useEffect(() => {
     loadFollowing();
+  }, [loadFollowing]);
+
+  useEffect(() => {
+    const refreshFollowing = () => {
+      loadFollowing({ silent: true });
+    };
+
+    window.addEventListener(FOLLOWING_CHANGED_EVENT, refreshFollowing);
 
     return () => {
-      isMounted = false;
+      window.removeEventListener(FOLLOWING_CHANGED_EVENT, refreshFollowing);
     };
-  }, []);
+  }, [loadFollowing]);
 
   const unfollowRemote = async (person) => {
     setRemovingId(person.id);
@@ -1430,6 +1614,7 @@ function FollowingPanel({ onCountChange }) {
     try {
       await api.delete(`/follows/remote/${person.id}`);
       setRemoteUsers((current) => current.filter((item) => item.id !== person.id));
+      notifyFollowingChanged();
       toast.success(`Unfollowed ${person.handle}`);
     } catch (err) {
       toast.error(
@@ -1448,6 +1633,7 @@ function FollowingPanel({ onCountChange }) {
     try {
       await api.delete(`/follows/${person.id}`);
       setLocalUsers((current) => current.filter((item) => item.id !== person.id));
+      notifyFollowingChanged();
       toast.success(`Unfollowed @${person.username}@${person.server}`);
     } catch (err) {
       toast.error(
@@ -1616,41 +1802,16 @@ export function ProfilePage() {
           <p className="mt-3 max-w-xl leading-relaxed text-zinc-300">{currentUser.bio}</p>
           <div className="mt-4 flex gap-6 text-sm">
             <span>
-              <strong className="text-white">128</strong> <span className="text-zinc-500">posts</span>
-            </span>
-            <span>
               <strong className="text-white">
                 {followingCount === null ? '...' : followingCount}
               </strong>{' '}
               <span className="text-zinc-500">following</span>
-            </span>
-            <span>
-              <strong className="text-white">1.8K</strong>{' '}
-              <span className="text-zinc-500">followers</span>
             </span>
           </div>
         </div>
       </section>
 
       <FollowingPanel onCountChange={setFollowingCount} />
-
-      <PostCard
-        post={{
-          ...initialPosts[0],
-          id: 'profile-post',
-          author: currentUser.name,
-          username: currentUser.username,
-          server: currentUser.server,
-          accent: 'bg-blue-500',
-          time: '2h',
-          body:
-            'Working through the frontend first: feed, discovery, notifications, communities, profile, and settings. Backend federation can land behind these surfaces cleanly.',
-          tags: ['buildinpublic', 'fediverse'],
-          replies: 4,
-          reposts: 7,
-          likes: 39,
-        }}
-      />
 
       {isEditing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
@@ -1745,77 +1906,282 @@ export function ProfilePage() {
   );
 }
 
-export function SettingsPage() {
+function InstanceMetric({ icon: Icon, label, value, detail, accent = 'text-blue-400' }) {
+  return (
+    <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-black ${accent}`}>
+          <Icon size={20} />
+        </div>
+        <span className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{label}</span>
+      </div>
+      <p className="text-2xl font-bold text-white">{value}</p>
+      <p className="mt-1 text-sm text-zinc-500">{detail}</p>
+    </section>
+  );
+}
+
+export function InstancePage() {
+  const currentUser = useCurrentUser();
+  const [apiStatus, setApiStatus] = useState('checking');
+  const [instanceData, setInstanceData] = useState(null);
+  const [instanceError, setInstanceError] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInstance() {
+      setApiStatus('checking');
+      setInstanceError('');
+
+      try {
+        const [healthResult, instanceResult] = await Promise.allSettled([
+          api.get('/health'),
+          api.get('/instance'),
+        ]);
+
+        if (!isMounted) return;
+
+        setApiStatus(healthResult.status === 'fulfilled' ? 'online' : 'offline');
+
+        if (instanceResult.status === 'fulfilled') {
+          setInstanceData(instanceResult.value.data);
+        } else {
+          setInstanceData(null);
+          setInstanceError('Unable to load instance data from this server.');
+        }
+      } catch {
+        if (!isMounted) return;
+        setApiStatus('offline');
+        setInstanceData(null);
+        setInstanceError('Unable to load instance data from this server.');
+      }
+    }
+
+    loadInstance();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const statusLabel =
+    apiStatus === 'checking' ? 'Checking...' : apiStatus === 'online' ? 'Online' : 'Offline';
+  const instance = instanceData?.instance;
+  const stats = instanceData?.stats || {};
+  const peers = instanceData?.peers || [];
+  const moderationQueue = instanceData?.moderationQueue || [];
+  const rules = instance?.rules || [];
+
   return (
     <AppShell>
-      <PageHeader title="Settings" subtitle="Account, privacy, and federation preferences" />
+      <PageHeader title="Instance" subtitle={`@${instance?.domain || currentUser.server}`} />
+
+      <section className="border-b border-zinc-800 p-4">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-blue-500 text-white">
+                <ServerIcon size={26} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-white">
+                  {instance?.name || currentUser.server}
+                </h1>
+                <p className="mt-1 text-sm text-zinc-500">{instance?.publicBaseUrl || getActiveApiUrl()}</p>
+              </div>
+            </div>
+            <div
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold ${
+                apiStatus === 'online'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                  : apiStatus === 'offline'
+                    ? 'border-red-500/30 bg-red-500/10 text-red-300'
+                    : 'border-zinc-700 bg-black text-zinc-300'
+              }`}
+            >
+              <Activity size={16} />
+              {statusLabel}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {instanceError && (
+        <div className="border-b border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {instanceError}
+        </div>
+      )}
+
+      <section className="grid gap-3 border-b border-zinc-800 p-4 sm:grid-cols-2">
+        <InstanceMetric
+          icon={Users}
+          label="Local users"
+          value={stats.localUsers ?? '-'}
+          detail="Accounts hosted on this server"
+          accent="text-cyan-400"
+        />
+        <InstanceMetric
+          icon={RadioTower}
+          label="Known peers"
+          value={stats.remoteActors ?? '-'}
+          detail="Remote actors known by this server"
+          accent="text-blue-400"
+        />
+        <InstanceMetric
+          icon={Gauge}
+          label="Delivery rate"
+          value={
+            typeof stats.deliverySuccessRate === 'number'
+              ? `${stats.deliverySuccessRate}%`
+              : '-'
+          }
+          detail="Successful outbound ActivityPub deliveries"
+          accent="text-emerald-400"
+        />
+        <InstanceMetric
+          icon={Database}
+          label="Queue depth"
+          value={stats.pendingDeliveries ?? '-'}
+          detail="Activities waiting for worker delivery"
+          accent="text-amber-400"
+        />
+      </section>
+
+      <section className="border-b border-zinc-800 p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="font-bold text-white">Federation peers</h2>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-full border border-zinc-700 p-2 text-zinc-300 transition hover:border-blue-500 hover:text-blue-300"
+            aria-label="Refresh federation peers"
+          >
+            <Activity size={16} />
+          </button>
+        </div>
+        {peers.length ? (
+          <div className="divide-y divide-zinc-900 rounded-lg border border-zinc-800 bg-zinc-950">
+          {peers.map((peer) => (
+            <div key={peer.domain} className="flex items-center gap-3 p-4">
+              <Avatar name={peer.domain} accent="bg-blue-500" size="h-10 w-10" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">{peer.domain}</p>
+                <p className="text-xs text-zinc-500">
+                  Last activity {formatPostTime(peer.lastSeen)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold text-zinc-200">{peer.actorCount}</p>
+                <p className="text-xs text-zinc-500">actors</p>
+              </div>
+            </div>
+          ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-500">
+            No remote peers have been discovered yet.
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-4 p-4 lg:grid-cols-2">
+        <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+          <div className="mb-4 flex items-center gap-3">
+            <Shield size={20} className="text-emerald-400" />
+            <h2 className="font-bold text-white">Server rules</h2>
+          </div>
+          {rules.length ? (
+            <div className="space-y-3">
+            {rules.map((rule, index) => (
+              <div key={rule} className="flex gap-3 text-sm text-zinc-300">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black text-xs font-bold text-blue-300">
+                  {index + 1}
+                </span>
+                <span>{rule}</span>
+              </div>
+            ))}
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">No server rules are configured.</p>
+          )}
+        </section>
+
+        <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+          <div className="mb-4 flex items-center gap-3">
+            <Ban size={20} className="text-rose-400" />
+            <h2 className="font-bold text-white">Moderation queue</h2>
+          </div>
+          {moderationQueue.length ? (
+            <div className="divide-y divide-zinc-900">
+            {moderationQueue.map((item) => (
+              <div key={item.title} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">{item.title}</p>
+                  <span className="text-xs text-zinc-600">{item.time}</span>
+                </div>
+                <p className="mt-1 text-sm text-zinc-500">{item.detail}</p>
+                <span className="mt-2 inline-flex rounded-full border border-zinc-800 px-2 py-1 text-xs text-zinc-400">
+                  {item.status}
+                </span>
+              </div>
+            ))}
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">No moderation items are available.</p>
+          )}
+        </section>
+      </section>
+    </AppShell>
+  );
+}
+
+export function SettingsPage() {
+  const currentUser = useCurrentUser();
+
+  return (
+    <AppShell>
+      <PageHeader title="Settings" subtitle="Account and selected server" />
       <div className="space-y-4 p-4">
         <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
           <div className="mb-4 flex items-center gap-3">
             <AtSign size={20} className="text-blue-400" />
             <h2 className="font-bold">Identity</h2>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-2 block text-sm text-zinc-400">Display name</span>
-              <input
-                className="w-full rounded-lg border border-zinc-800 bg-black px-3 py-2 text-white outline-none focus:border-blue-500"
-                defaultValue="Karthik"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-2 block text-sm text-zinc-400">Username</span>
-              <input
-                className="w-full rounded-lg border border-zinc-800 bg-black px-3 py-2 text-white outline-none focus:border-blue-500"
-                defaultValue="karthik"
-              />
-            </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-zinc-800 bg-black px-3 py-3">
+              <p className="text-xs text-zinc-500">Display name</p>
+              <p className="mt-1 font-semibold text-white">{currentUser.name}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-black px-3 py-3">
+              <p className="text-xs text-zinc-500">Federated handle</p>
+              <p className="mt-1 font-semibold text-white">
+                @{currentUser.username}@{currentUser.server}
+              </p>
+            </div>
           </div>
+          <Link
+            to="/profile"
+            className="mt-4 inline-flex rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:border-blue-500 hover:text-blue-300"
+          >
+            Edit profile
+          </Link>
         </section>
 
         <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
           <div className="mb-4 flex items-center gap-3">
-            <Shield size={20} className="text-emerald-400" />
-            <h2 className="font-bold">Safety</h2>
+            <ServerIcon size={20} className="text-emerald-400" />
+            <h2 className="font-bold">Selected server</h2>
           </div>
-          {[
-            { label: 'Require approval for follow requests', checked: true },
-            { label: 'Hide boosts from unknown servers', checked: false },
-            { label: 'Filter media from new accounts', checked: true },
-          ].map((setting) => (
-            <label
-              key={setting.label}
-              className="flex items-center justify-between border-t border-zinc-900 py-3 first:border-t-0 first:pt-0"
-            >
-              <span className="text-sm text-zinc-300">{setting.label}</span>
-              <input
-                type="checkbox"
-                defaultChecked={setting.checked}
-                className="h-4 w-4 rounded border-zinc-700 bg-black text-blue-500 focus:ring-blue-500"
-              />
-            </label>
-          ))}
-        </section>
-
-        <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-          <div className="mb-4 flex items-center gap-3">
-            <Lock size={20} className="text-amber-400" />
-            <h2 className="font-bold">Post visibility</h2>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {['Public', 'Followers', 'Mentioned'].map((option) => (
-              <button
-                key={option}
-                type="button"
-                className={`rounded-lg border px-4 py-3 text-sm font-semibold transition ${
-                  option === 'Public'
-                    ? 'border-blue-500 bg-blue-500 text-white'
-                    : 'border-zinc-800 bg-black text-zinc-400 hover:border-zinc-600 hover:text-white'
-                }`}
-              >
-                {option}
-              </button>
-            ))}
+          <div className="grid gap-3">
+            <div className="rounded-lg border border-zinc-800 bg-black px-3 py-3">
+              <p className="text-xs text-zinc-500">API URL</p>
+              <p className="mt-1 break-all font-semibold text-white">{getActiveApiUrl()}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-black px-3 py-3">
+              <p className="text-xs text-zinc-500">Configured servers</p>
+              <p className="mt-1 font-semibold text-white">{configuredServers.length}</p>
+            </div>
           </div>
         </section>
       </div>

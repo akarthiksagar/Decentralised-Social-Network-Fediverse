@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, EyeOff, Globe, Lock, Mail } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, Globe, Lock, Mail, Server } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../lib/axios';
+import { findServerByDomain, getDefaultServer, servers } from '../lib/servers';
 import { useAuthStore } from '../store/authStore';
 
 function getAuthPayload(data) {
@@ -15,6 +16,10 @@ function getAuthPayload(data) {
 export default function Login() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((state) => state.setAuth);
+  const storedServer = useAuthStore((state) => state.selectedServer);
+  const [selectedServer, setSelectedServer] = useState(
+    storedServer?.domain ? findServerByDomain(storedServer.domain) : getDefaultServer()
+  );
   const [form, setForm] = useState({ email: '', password: '', remember: true });
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,17 +46,21 @@ export default function Login() {
     setError('');
 
     try {
-      const { data } = await api.post('/auth/login', {
-        email: form.email.trim(),
-        password: form.password,
-      });
+      const { data } = await api.post(
+        '/auth/login',
+        {
+          email: form.email.trim(),
+          password: form.password,
+        },
+        { baseURL: selectedServer.apiUrl }
+      );
       const { user, token } = getAuthPayload(data);
 
       if (!token) {
         throw new Error('Login succeeded but no token was returned.');
       }
 
-      setAuth(user, token);
+      setAuth(user, token, selectedServer);
       toast.success('Welcome back');
       navigate('/home');
     } catch (err) {
@@ -106,11 +115,36 @@ export default function Login() {
               <h2 className="text-2xl font-bold">Login</h2>
               <p className="mt-2 text-sm text-zinc-500">
                 New here?{' '}
-                <Link to="/register" className="font-medium text-blue-400 hover:text-blue-300">
+                <Link to="/servers" className="font-medium text-blue-400 hover:text-blue-300">
                   Create an account
                 </Link>
               </p>
             </div>
+
+            <label className="mb-5 block">
+              <span className="mb-2 block text-sm font-medium text-zinc-300">Home server</span>
+              <span className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-black px-3 py-3 transition focus-within:border-blue-500">
+                <Server size={18} className="text-zinc-500" />
+                <select
+                  value={selectedServer.domain}
+                  onChange={(event) => {
+                    const server = servers.find((item) => item.domain === event.target.value);
+                    setSelectedServer(server || getDefaultServer());
+                    setError('');
+                  }}
+                  className="w-full bg-black text-white outline-none"
+                >
+                  {servers.map((server) => (
+                    <option key={server.id} value={server.domain}>
+                      {server.name} ({server.domain})
+                    </option>
+                  ))}
+                </select>
+              </span>
+              <span className="mt-2 block truncate text-xs text-zinc-500">
+                API: {selectedServer.apiUrl}
+              </span>
+            </label>
 
             <label className="mb-5 block">
               <span className="mb-2 block text-sm font-medium text-zinc-300">Email</span>

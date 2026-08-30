@@ -4,6 +4,7 @@ import {
   Globe, Shield, Users, Zap,
   ArrowRight, CheckCircle
 } from 'lucide-react';
+import Typewriter from '../components/ui/Typewriter';
 
 // ─── Data ────────────────────────────────────────────────
 const features = [
@@ -98,9 +99,11 @@ function Hero({ onRegister }) {
 
       {/* Subtext */}
       <p className="text-zinc-400 text-xl leading-relaxed mb-10 max-w-2xl">
-        A decentralized social network where no corporation owns your data,
+      <Typewriter
+        text="A decentralized social network where no corporation owns your data,
         controls your feed, or can silence your voice. Connect with the
-        entire Fediverse from one place.
+        entire Fediverse from one place." speed={60}>
+      </Typewriter>
       </p>
 
       {/* CTA Buttons */}

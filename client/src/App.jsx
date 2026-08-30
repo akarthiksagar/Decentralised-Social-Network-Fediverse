@@ -9,9 +9,11 @@ import {
   CommunitiesPage,
   ExplorePage,
   HomePage,
+  InstancePage,
   NotificationsPage,
   ProfilePage,
   SettingsPage,
+  ThreadPage,
 } from './pages/SocialApp';
 
 export default function App() {
@@ -21,7 +23,9 @@ export default function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/servers" element={<ServerSelection />} />
         <Route path="/home" element={<HomePage />} />
+        <Route path="/posts/:postId" element={<ThreadPage />} />
         <Route path="/explore" element={<ExplorePage />} />
+        <Route path="/instance" element={<InstancePage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/communities" element={<CommunitiesPage />} />
         <Route path="/bookmarks" element={<BookmarksPage />} />

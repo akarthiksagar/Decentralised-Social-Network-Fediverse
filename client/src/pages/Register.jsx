@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { ArrowLeft, AtSign, Eye, EyeOff, Globe, Lock, Mail, Server, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../lib/axios';
+import { findServerByDomain } from '../lib/servers';
 import { useAuthStore } from '../store/authStore';
 
 function getAuthPayload(data) {
@@ -17,8 +18,9 @@ export default function Register() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const setAuth = useAuthStore((state) => state.setAuth);
-  const selectedServer = location.state?.selectedServer;
-  const serverDomain = selectedServer?.domain || searchParams.get('server') || 'fediverse.local';
+  const selectedServer =
+    location.state?.selectedServer || findServerByDomain(searchParams.get('server'));
+  const serverDomain = selectedServer.domain;
   const [form, setForm] = useState({
     name: '',
     username: '',
@@ -77,25 +79,33 @@ export default function Register() {
     setError('');
 
     try {
-      const { data } = await api.post('/auth/register', {
-        name: form.name.trim(),
-        username: form.username.trim().replace(/^@/, ''),
-        email: form.email.trim(),
-        password: form.password,
-        server: serverDomain,
-      });
+      const { data } = await api.post(
+        '/auth/register',
+        {
+          name: form.name.trim(),
+          username: form.username.trim().replace(/^@/, ''),
+          email: form.email.trim(),
+          password: form.password,
+          server: serverDomain,
+        },
+        { baseURL: selectedServer.apiUrl }
+      );
       const { user, token } = getAuthPayload(data);
 
       if (!token) {
         throw new Error('Registration succeeded but no token was returned.');
       }
 
-      setAuth(user || {
-        name: form.name.trim(),
-        username: form.username.trim().replace(/^@/, ''),
-        email: form.email.trim(),
-        server: serverDomain,
-      }, token);
+      setAuth(
+        user || {
+          name: form.name.trim(),
+          username: form.username.trim().replace(/^@/, ''),
+          email: form.email.trim(),
+          server: serverDomain,
+        },
+        token,
+        selectedServer
+      );
       toast.success('Account created');
       navigate('/home');
     } catch (err) {
@@ -151,6 +161,7 @@ export default function Register() {
                     {selectedServer?.name || serverDomain}
                   </p>
                   <p className="text-sm text-zinc-500">{serverDomain}</p>
+                  <p className="truncate text-xs text-zinc-600">{selectedServer.apiUrl}</p>
                 </div>
                 <Link
                   to="/servers"
@@ -188,7 +199,7 @@ export default function Register() {
                     value={form.name}
                     onChange={updateField}
                     className="w-full bg-transparent text-white outline-none placeholder:text-zinc-600"
-                    placeholder="Karthik"
+                    placeholder="Display name"
                   />
                 </span>
               </label>
@@ -204,7 +215,7 @@ export default function Register() {
                     value={form.username}
                     onChange={updateField}
                     className="w-full bg-transparent text-white outline-none placeholder:text-zinc-600"
-                    placeholder="karthik"
+                    placeholder="username"
                   />
                 </span>
                 <span className="mt-2 block truncate text-xs text-zinc-500">

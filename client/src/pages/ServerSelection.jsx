@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -7,100 +7,10 @@ import {
   Globe,
   Search,
   Server,
-  Shield,
   Sparkles,
-  Users,
-  Zap,
 } from 'lucide-react';
-
-const servers = [
-  {
-    id: 'fediverse.local',
-    name: 'Fediverse Local',
-    domain: 'fediverse.local',
-    category: 'General',
-    members: '12.4K',
-    uptime: '99.98%',
-    speed: 'Fast',
-    registrations: 'Open',
-    accent: 'bg-blue-500',
-    description:
-      'A balanced home server for general social posting, discovery, and federation testing.',
-    rules: ['No harassment', 'No spam', 'Respect content warnings'],
-  },
-  {
-    id: 'dev.social',
-    name: 'Dev Social',
-    domain: 'dev.social',
-    category: 'Technology',
-    members: '82K',
-    uptime: '99.95%',
-    speed: 'Fast',
-    registrations: 'Open',
-    accent: 'bg-cyan-500',
-    description:
-      'Software builders, open web discussions, project updates, and protocol experiments.',
-    rules: ['Keep debates civil', 'No job spam', 'Credit open-source work'],
-  },
-  {
-    id: 'mastodon.art',
-    name: 'Mastodon Art',
-    domain: 'mastodon.art',
-    category: 'Creative',
-    members: '234K',
-    uptime: '99.91%',
-    speed: 'Medium',
-    registrations: 'Invite',
-    accent: 'bg-fuchsia-500',
-    description:
-      'A visual-first community for artists, illustrators, designers, and creative process posts.',
-    rules: ['Tag sensitive media', 'Credit artists', 'No AI spam'],
-  },
-  {
-    id: 'social.coop',
-    name: 'Social Coop',
-    domain: 'social.coop',
-    category: 'Community',
-    members: '18.6K',
-    uptime: '99.89%',
-    speed: 'Medium',
-    registrations: 'Open',
-    accent: 'bg-emerald-500',
-    description:
-      'Community-owned social networking focused on cooperative governance and mutual aid.',
-    rules: ['Community moderation', 'No extractive promotion', 'Use good-faith replies'],
-  },
-  {
-    id: 'campus.space',
-    name: 'Campus Space',
-    domain: 'campus.space',
-    category: 'Education',
-    members: '41.2K',
-    uptime: '99.94%',
-    speed: 'Fast',
-    registrations: 'Open',
-    accent: 'bg-amber-500',
-    description:
-      'Students, research groups, teachers, and academic communities sharing public work.',
-    rules: ['No plagiarism', 'Protect student privacy', 'Cite sources'],
-  },
-  {
-    id: 'indieweb.social',
-    name: 'IndieWeb Social',
-    domain: 'indieweb.social',
-    category: 'Indie Web',
-    members: '29.7K',
-    uptime: '99.93%',
-    speed: 'Fast',
-    registrations: 'Open',
-    accent: 'bg-rose-500',
-    description:
-      'Personal sites, webmentions, RSS, portable identity, and small-web publishing.',
-    rules: ['Own your content', 'No scraping', 'Respect personal boundaries'],
-  },
-];
-
-const categories = ['All', 'General', 'Technology', 'Creative', 'Community', 'Education', 'Indie Web'];
+import api from '../lib/axios';
+import { categories, servers } from '../lib/servers';
 
 function ServerAvatar({ server }) {
   return (
@@ -141,19 +51,16 @@ function ServerCard({ server, selected, onSelect }) {
           </div>
 
           <p className="mt-3 text-sm leading-relaxed text-zinc-300">{server.description}</p>
+          <p className="mt-2 truncate text-xs text-zinc-500">API: {server.apiUrl}</p>
 
-          <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-            <span className="rounded-md bg-black px-2 py-2 text-zinc-400">
-              <strong className="block text-white">{server.members}</strong>
-              members
-            </span>
-            <span className="rounded-md bg-black px-2 py-2 text-zinc-400">
-              <strong className="block text-white">{server.uptime}</strong>
-              uptime
-            </span>
+          <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
             <span className="rounded-md bg-black px-2 py-2 text-zinc-400">
               <strong className="block text-white">{server.registrations}</strong>
-              signup
+              registration
+            </span>
+            <span className="rounded-md bg-black px-2 py-2 text-zinc-400">
+              <strong className="block text-white">{server.category}</strong>
+              category
             </span>
           </div>
         </div>
@@ -167,6 +74,7 @@ export default function ServerSelection() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All');
   const [selectedServer, setSelectedServer] = useState(servers[0]);
+  const [healthStatus, setHealthStatus] = useState('checking');
 
   const filteredServers = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -188,6 +96,27 @@ export default function ServerSelection() {
       state: { selectedServer },
     });
   };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function checkHealth() {
+      setHealthStatus('checking');
+
+      try {
+        await api.get('/health', { baseURL: selectedServer.apiUrl });
+        if (isMounted) setHealthStatus('online');
+      } catch {
+        if (isMounted) setHealthStatus('offline');
+      }
+    }
+
+    checkHealth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedServer]);
 
   return (
     <main className="min-h-screen bg-black text-white">
@@ -270,33 +199,32 @@ export default function ServerSelection() {
                 <div>
                   <h2 className="font-bold text-white">{selectedServer.name}</h2>
                   <p className="text-sm text-zinc-500">{selectedServer.domain}</p>
+                  <p className="text-xs text-zinc-600">{selectedServer.apiUrl}</p>
                 </div>
               </div>
 
               <div className="space-y-3 text-sm text-zinc-300">
                 <div className="flex items-center justify-between rounded-lg bg-black px-3 py-3">
-                  <span className="flex items-center gap-2 text-zinc-400">
-                    <Users size={16} />
-                    Members
-                  </span>
-                  <strong className="text-white">{selectedServer.members}</strong>
+                  <span className="text-zinc-400">API health</span>
+                  <strong
+                    className={
+                      healthStatus === 'online'
+                        ? 'text-emerald-300'
+                        : healthStatus === 'offline'
+                          ? 'text-red-300'
+                          : 'text-zinc-300'
+                    }
+                  >
+                    {healthStatus}
+                  </strong>
                 </div>
                 <div className="flex items-center justify-between rounded-lg bg-black px-3 py-3">
-                  <span className="flex items-center gap-2 text-zinc-400">
-                    <Zap size={16} />
-                    Speed
-                  </span>
-                  <strong className="text-white">{selectedServer.speed}</strong>
-                </div>
-                <div className="flex items-center justify-between rounded-lg bg-black px-3 py-3">
-                  <span className="flex items-center gap-2 text-zinc-400">
-                    <Shield size={16} />
-                    Uptime
-                  </span>
-                  <strong className="text-white">{selectedServer.uptime}</strong>
+                  <span className="text-zinc-400">Registration</span>
+                  <strong className="text-white">{selectedServer.registrations}</strong>
                 </div>
               </div>
 
+              {selectedServer.rules.length > 0 && (
               <div className="mt-5">
                 <h3 className="mb-3 text-sm font-semibold text-white">Community rules</h3>
                 <div className="space-y-2">
@@ -308,6 +236,7 @@ export default function ServerSelection() {
                   ))}
                 </div>
               </div>
+              )}
 
               <button
                 type="button"

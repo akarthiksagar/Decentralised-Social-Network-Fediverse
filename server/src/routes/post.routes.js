@@ -8,6 +8,12 @@ import {
   enqueueActivityDelivery,
   recordOutboundActivity,
 } from '../services/delivery.service.js';
+import {
+  actorDisplayName,
+  actorHandle,
+  createNotification,
+  truncateNotificationBody,
+} from '../services/notification.service.js';
 import { serializeCreateActivity } from '../utils/activitypub.js';
 import { getJwtSecret } from '../utils/auth.js';
 
@@ -107,7 +113,10 @@ router.get('/', async (req, res, next) => {
 router.post('/:postId/like', authenticate, async (req, res, next) => {
   try {
     const postId = String(req.params.postId);
-    const post = await prisma.post.findUnique({ where: { id: postId } });
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: { author: true },
+    });
 
     if (!post) {
       return res.status(404).json({ message: 'Post not found.' });
@@ -115,9 +124,10 @@ router.post('/:postId/like', authenticate, async (req, res, next) => {
 
     let liked = true;
     let updatedPost = post;
+    let like = null;
 
     try {
-      await prisma.like.create({
+      like = await prisma.like.create({
         data: {
           userId: req.user.id,
           postId,
@@ -130,6 +140,21 @@ router.post('/:postId/like', authenticate, async (req, res, next) => {
     } catch (error) {
       if (error.code !== 'P2002') throw error;
       liked = true;
+    }
+
+    if (like && post.authorId && post.authorId !== req.user.id) {
+      await createNotification(prisma, {
+        userId: post.authorId,
+        type: 'LIKE',
+        actorUrl: req.user.actorUrl,
+        title: `${actorDisplayName(req.user)} liked your post`,
+        body: truncateNotificationBody(post.content),
+        data: {
+          postId,
+          likeId: like.id,
+          actorHandle: actorHandle(req.user),
+        },
+      });
     }
 
     return res.status(201).json({

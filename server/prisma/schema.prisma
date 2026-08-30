@@ -247,6 +247,7 @@ enum NotificationType {
   FOLLOW
   ACCEPT
   POST
+  LIKE
   MENTION
   SYSTEM
 }

@@ -1445,6 +1445,7 @@ export function NotificationsPage() {
     if (item.type === 'FOLLOW') return UserPlus;
     if (item.type === 'ACCEPT') return User;
     if (item.type === 'POST') return MessageCircle;
+    if (item.type === 'LIKE') return Heart;
     return Bell;
   };
 
@@ -1453,6 +1454,7 @@ export function NotificationsPage() {
     if (item.type === 'FOLLOW') return 'text-blue-400';
     if (item.type === 'ACCEPT') return 'text-emerald-400';
     if (item.type === 'POST') return 'text-cyan-400';
+    if (item.type === 'LIKE') return 'text-rose-400';
     return 'text-zinc-400';
   };
 

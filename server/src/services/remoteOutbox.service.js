@@ -4,6 +4,9 @@ import { prisma } from '../db.js';
 const FETCH_TIMEOUT_MS = Number(process.env.FEDERATION_DISCOVERY_TIMEOUT_MS || 5000);
 const MAX_OUTBOX_ITEMS = 40;
 const PUBLIC_COLLECTION = 'https://www.w3.org/ns/activitystreams#Public';
+const SYNC_TTL_MS = 10 * 60 * 1000;
+const FAILED_SYNC_TTL_MS = 60 * 1000;
+const syncCache = new Map();
 
 function getId(value) {
   if (typeof value === 'string') return value;
@@ -37,14 +40,22 @@ async function getOutboxItems(outboxUrl) {
   const outbox = await fetchActivityPubJson(outboxUrl);
   const inlineItems = outbox.orderedItems || outbox.items;
 
-  if (Array.isArray(inlineItems)) return inlineItems.slice(0, MAX_OUTBOX_ITEMS);
+  if (Array.isArray(inlineItems) && inlineItems.length) {
+    return inlineItems.slice(0, MAX_OUTBOX_ITEMS);
+  }
 
-  const firstPage = getId(outbox.first) || outbox.first;
+  const firstPage = outbox.first;
   if (!firstPage) return [];
 
-  const page = typeof firstPage === 'string'
-    ? await fetchActivityPubJson(firstPage)
-    : firstPage;
+  const embeddedItems = firstPage.orderedItems || firstPage.items;
+  if (Array.isArray(embeddedItems) && embeddedItems.length) {
+    return embeddedItems.slice(0, MAX_OUTBOX_ITEMS);
+  }
+
+  const firstPageUrl = getId(firstPage) || (typeof firstPage === 'string' ? firstPage : null);
+  if (!firstPageUrl) return [];
+
+  const page = await fetchActivityPubJson(firstPageUrl);
   return toArray(page?.orderedItems || page?.items).slice(0, MAX_OUTBOX_ITEMS);
 }
 
@@ -61,8 +72,7 @@ function isPublicNote(activity, note) {
   return recipients.includes(PUBLIC_COLLECTION);
 }
 
-/** Import a small recent window so a new remote follow has posts to show. */
-export async function syncRemoteOutbox(remoteActor) {
+async function importRecentOutboxItems(remoteActor) {
   if (!remoteActor?.actorUrl || !remoteActor?.outboxUrl) return 0;
 
   const items = await getOutboxItems(remoteActor.outboxUrl);
@@ -100,4 +110,26 @@ export async function syncRemoteOutbox(remoteActor) {
   }
 
   return stored;
+}
+
+/** Import a small recent window so followed remote accounts have posts to show. */
+export async function syncRemoteOutbox(remoteActor) {
+  if (!remoteActor?.actorUrl || !remoteActor?.outboxUrl) return 0;
+
+  const now = Date.now();
+  const cached = syncCache.get(remoteActor.id);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const entry = {
+    expiresAt: now + SYNC_TTL_MS,
+    promise: importRecentOutboxItems(remoteActor),
+  };
+  syncCache.set(remoteActor.id, entry);
+
+  try {
+    return await entry.promise;
+  } catch (error) {
+    entry.expiresAt = Date.now() + FAILED_SYNC_TTL_MS;
+    throw error;
+  }
 }

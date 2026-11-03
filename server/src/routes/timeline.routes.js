@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/authenticate.js';
+import { syncRemoteOutbox } from '../services/remoteOutbox.service.js';
 import { getPostInclude, serializePost } from './post.routes.js';
 
 const router = Router();
@@ -23,10 +24,13 @@ router.get('/home', authenticate, async (req, res, next) => {
     const remoteFollows = await prisma.remoteFollowing.findMany({
       where: {
         userId: req.user.id,
-        status: 'ACCEPTED',
+        status: { in: ['PENDING', 'ACCEPTED'] },
       },
       include: { remoteActor: true },
     });
+    await Promise.allSettled(
+      remoteFollows.map((follow) => syncRemoteOutbox(follow.remoteActor))
+    );
     const remoteActorUrls = remoteFollows.map((follow) => follow.remoteActor.actorUrl);
     const matchingLocalRemoteActors = remoteActorUrls.length
       ? await prisma.user.findMany({

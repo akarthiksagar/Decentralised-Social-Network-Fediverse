@@ -1023,10 +1023,12 @@ export function HomePage() {
       }
     }
 
+    window.addEventListener(FOLLOWING_CHANGED_EVENT, loadPosts);
     loadPosts();
 
     return () => {
       isMounted = false;
+      window.removeEventListener(FOLLOWING_CHANGED_EVENT, loadPosts);
     };
   }, []);
 

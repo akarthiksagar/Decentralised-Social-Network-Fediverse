@@ -7,6 +7,7 @@ import {
   recordOutboundActivity,
 } from '../services/delivery.service.js';
 import { createNotification } from '../services/notification.service.js';
+import { syncRemoteOutbox } from '../services/remoteOutbox.service.js';
 import {
   discoverRemoteActor,
   serializeRemoteActor,
@@ -85,6 +86,13 @@ router.post('/remote', authenticate, async (req, res, next) => {
       inboxUrl: remoteActor.inboxUrl,
       activity,
     });
+
+    try {
+      await syncRemoteOutbox(remoteActor);
+    } catch (error) {
+      // Following should succeed even when the remote outbox is temporarily unavailable.
+      console.warn(`Unable to sync outbox for ${remoteActor.actorUrl}: ${error.message}`);
+    }
 
     return res.status(202).json({
       follow,

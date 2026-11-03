@@ -2108,6 +2108,12 @@ export function InstancePage() {
         </div>
       )}
 
+      {instanceData && !instanceData.federation?.inboxReachable && (
+        <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Remote servers cannot reach this instance. Set <code>PUBLIC_BASE_URL</code> to a public URL, then migrate or recreate accounts whose actor URLs currently use localhost.
+        </div>
+      )}
+
       <section className="grid gap-3 border-b border-zinc-800 p-4 sm:grid-cols-2">
         <InstanceMetric
           icon={Users}

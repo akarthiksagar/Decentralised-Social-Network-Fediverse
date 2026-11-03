@@ -14,6 +14,27 @@ function getInstanceName() {
   return process.env.INSTANCE_NAME || process.env.LOCAL_DOMAIN || process.env.SERVER_DOMAIN || 'Instance';
 }
 
+function getFederationReachability() {
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || null;
+  if (!publicBaseUrl) return { publicBaseUrl: null, inboxReachable: false };
+
+  try {
+    const { protocol, hostname } = new URL(publicBaseUrl);
+    const isLocalHost =
+      hostname === 'localhost' ||
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.local') ||
+      hostname === '0.0.0.0' ||
+      hostname.startsWith('127.');
+    return {
+      publicBaseUrl,
+      inboxReachable: !isLocalHost && protocol === 'https:',
+    };
+  } catch {
+    return { publicBaseUrl, inboxReachable: false };
+  }
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const [
@@ -66,6 +87,7 @@ router.get('/', async (req, res, next) => {
         name: getInstanceName(),
         domain: process.env.LOCAL_DOMAIN || process.env.SERVER_DOMAIN || null,
         publicBaseUrl: process.env.PUBLIC_BASE_URL || null,
+        federation: getFederationReachability(),
         registrations: process.env.REGISTRATIONS_OPEN === 'false' ? 'Closed' : 'Open',
         rules: getInstanceRules(),
       },

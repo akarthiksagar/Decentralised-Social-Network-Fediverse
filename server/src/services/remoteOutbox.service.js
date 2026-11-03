@@ -11,12 +11,14 @@ const syncCache = new Map();
 
 function getId(value) {
   if (typeof value === 'string') return value;
-  return typeof value?.id === 'string' ? value.id : null;
+  if (typeof value?.id === 'string') return value.id;
+  return typeof value?.['@id'] === 'string' ? value['@id'] : null;
 }
 
 function getTypeName(value) {
-  return typeof value?.type === 'string'
-    ? value.type.split(/[\/#]/).filter(Boolean).at(-1)
+  const rawType = typeof value?.type === 'string' ? value.type : value?.['@type'];
+  return typeof rawType === 'string'
+    ? rawType.split(/[\/#]/).filter(Boolean).at(-1)
     : null;
 }
 
@@ -31,7 +33,7 @@ async function fetchActivityPubJson(url) {
   try {
     const response = await fetch(url, {
       headers: {
-        Accept: 'application/activity+json, application/ld+json, application/json',
+        Accept: 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/json',
       },
       signal: controller.signal,
     });
@@ -51,7 +53,7 @@ async function getOutboxItems(outboxUrl) {
     return inlineItems.slice(0, MAX_OUTBOX_ITEMS);
   }
 
-  const firstPage = outbox.first;
+  const firstPage = outbox.first || outbox['as:first'];
   if (!firstPage) return [];
 
   const embeddedItems = firstPage.orderedItems || firstPage.items;

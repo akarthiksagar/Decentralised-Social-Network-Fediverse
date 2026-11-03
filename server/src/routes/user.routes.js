@@ -29,17 +29,21 @@ function getActivityId(activity) {
 }
 
 function getActivityType(activity) {
-  if (typeof activity?.type !== 'string') return null;
-  return activity.type.split(/[\/#]/).filter(Boolean).at(-1) || null;
+  const type = typeof activity?.type === 'string' ? activity.type : activity?.['@type'];
+  if (typeof type !== 'string') return null;
+  return type.split(/[\/#]/).filter(Boolean).at(-1) || null;
 }
 
 function getActorUrl(activity) {
-  return typeof activity?.actor === 'string' ? activity.actor : activity?.actor?.id || null;
+  return typeof activity?.actor === 'string'
+    ? activity.actor
+    : activity?.actor?.id || activity?.actor?.['@id'] || null;
 }
 
 function getObjectId(object) {
   if (typeof object === 'string') return object;
   if (typeof object?.id === 'string') return object.id;
+  if (typeof object?.['@id'] === 'string') return object['@id'];
   return null;
 }
 
@@ -51,14 +55,11 @@ function isPublicActivity(activity, object) {
 }
 
 async function resolveNoteObject(object) {
-  if (object && typeof object === 'object' && object.type?.split(/[\/#]/).at(-1) === 'Note') {
+  const objectType = typeof object?.type === 'string' ? object.type : object?.['@type'];
+  if (object && typeof object === 'object' && objectType?.split(/[\/#]/).at(-1) === 'Note') {
     return object;
   }
-  const objectUrl = typeof object === 'string'
-    ? object
-    : typeof object?.id === 'string'
-      ? object.id
-      : null;
+  const objectUrl = getObjectId(object);
   if (!objectUrl || !/^https?:\/\//i.test(objectUrl)) return null;
 
   const controller = new AbortController();
@@ -371,9 +372,7 @@ router.post('/:username/inbox', verifyActivityPubHttpSignature, async (req, res,
 
     if (type === 'Create') {
       const object = await resolveNoteObject(activity.object);
-      const objectType = typeof object?.type === 'string'
-        ? object.type.split(/[\/#]/).filter(Boolean).at(-1)
-        : null;
+      const objectType = getActivityType(object);
 
       if (objectType !== 'Note') {
         return res.status(202).json({ status: 'ignored', reason: 'Only Note objects are stored.' });

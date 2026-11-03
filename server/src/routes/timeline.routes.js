@@ -28,9 +28,16 @@ router.get('/home', authenticate, async (req, res, next) => {
       },
       include: { remoteActor: true },
     });
-    await Promise.allSettled(
+    const outboxSyncResults = await Promise.allSettled(
       remoteFollows.map((follow) => syncRemoteOutbox(follow.remoteActor))
     );
+    outboxSyncResults.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.warn(
+          `Unable to sync remote outbox for ${remoteFollows[index].remoteActor.actorUrl}: ${result.reason?.message || 'unknown error'}`
+        );
+      }
+    });
     const remoteActorUrls = remoteFollows.map((follow) => follow.remoteActor.actorUrl);
     const matchingLocalRemoteActors = remoteActorUrls.length
       ? await prisma.user.findMany({

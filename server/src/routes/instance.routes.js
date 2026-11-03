@@ -19,6 +19,7 @@ router.get('/', async (req, res, next) => {
     const [
       localUserCount,
       localPostCount,
+      remotePostCount,
       remoteActorCount,
       pendingDeliveryCount,
       sentDeliveryCount,
@@ -27,6 +28,7 @@ router.get('/', async (req, res, next) => {
     ] = await Promise.all([
       prisma.user.count(),
       prisma.post.count({ where: { isLocal: true } }),
+      prisma.post.count({ where: { isLocal: false } }),
       prisma.remoteActor.count(),
       prisma.deliveryTask.count({ where: { status: 'PENDING' } }),
       prisma.deliveryTask.count({ where: { status: 'SENT' } }),
@@ -70,6 +72,7 @@ router.get('/', async (req, res, next) => {
       stats: {
         localUsers: localUserCount,
         localPosts: localPostCount,
+        remotePosts: remotePostCount,
         remoteActors: remoteActorCount,
         pendingDeliveries: pendingDeliveryCount,
         sentDeliveries: sentDeliveryCount,

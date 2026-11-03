@@ -721,19 +721,42 @@ function AppShell({ children }) {
 
 function Composer({ currentUser, onPublish, placeholder = 'What is happening across your network?' }) {
   const [text, setText] = useState('');
+  const [image, setImage] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
   const remaining = 280 - text.length;
 
   const publish = async () => {
     const body = text.trim();
-    if (!body) return;
+    if (!body && !image) return;
     setIsPublishing(true);
     try {
-      const didPublish = await onPublish(body);
-      if (didPublish !== false) setText('');
+      const didPublish = await onPublish(body, image);
+      if (didPublish !== false) {
+        setText('');
+        setImage('');
+      }
     } finally {
       setIsPublishing(false);
     }
+  };
+
+  const selectImage = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      toast.error('Choose a JPEG, PNG, WebP, or GIF image.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Images must be 5 MB or smaller.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => setImage(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => toast.error('Unable to read that image.');
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -748,15 +771,30 @@ function Composer({ currentUser, onPublish, placeholder = 'What is happening acr
             className="min-h-28 w-full resize-none bg-transparent text-lg text-white outline-none placeholder:text-zinc-600"
             placeholder={placeholder}
           />
-          <div className="flex items-center justify-between border-t border-zinc-900 pt-3">
-            <div className="flex items-center gap-2 text-zinc-500">
+          {image && (
+            <div className="relative mb-3 inline-block max-w-full">
+              <img src={image} alt="Post attachment preview" className="max-h-72 max-w-full rounded-xl object-contain" />
               <button
                 type="button"
-                className="rounded-full p-2 transition hover:bg-zinc-900 hover:text-blue-400"
-                aria-label="Add image"
+                onClick={() => setImage('')}
+                className="absolute right-2 top-2 rounded-full bg-black/80 p-2 text-white hover:bg-black"
+                aria-label="Remove image"
               >
-                <Image size={19} />
+                <X size={16} />
               </button>
+            </div>
+          )}
+          <div className="flex items-center justify-between border-t border-zinc-900 pt-3">
+            <div className="flex items-center gap-2 text-zinc-500">
+              <label className="cursor-pointer rounded-full p-2 transition hover:bg-zinc-900 hover:text-blue-400" aria-label="Add image">
+                <Image size={19} />
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="sr-only"
+                  onChange={selectImage}
+                />
+              </label>
               <button
                 type="button"
                 className="rounded-full p-2 transition hover:bg-zinc-900 hover:text-blue-400"
@@ -772,7 +810,7 @@ function Composer({ currentUser, onPublish, placeholder = 'What is happening acr
               <button
                 type="button"
                 onClick={publish}
-                disabled={!text.trim() || isPublishing}
+                disabled={(!text.trim() && !image) || isPublishing}
                 className="flex items-center gap-2 rounded-full bg-blue-500 px-5 py-2 text-sm font-bold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send size={16} />
@@ -877,7 +915,17 @@ function PostCard({ post, initiallyBookmarked = false, showThreadLink = true }) 
             </button>
           </div>
 
-          <p className="mt-2 leading-relaxed text-zinc-200">{post.body}</p>
+          {post.body && <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-200">{post.body}</p>}
+          {post.mediaUrl && (
+            <a href={post.mediaUrl} target="_blank" rel="noreferrer" className="mt-3 block overflow-hidden rounded-xl border border-zinc-800">
+              <img
+                src={post.mediaUrl}
+                alt="Post attachment"
+                loading="lazy"
+                className="max-h-[32rem] w-full object-contain"
+              />
+            </a>
+          )}
 
           <div className="mt-3 flex flex-wrap gap-2">
             {(post.tags || []).map((tag) => (
@@ -1069,10 +1117,11 @@ export function HomePage() {
     }
   }, [inView, loadMorePosts]);
 
-  const publishPost = async (body) => {
+  const publishPost = async (body, image) => {
     try {
       const { data } = await api.post('/posts', {
         content: body,
+        image: image || undefined,
         visibility: 'PUBLIC',
       });
       setPosts((current) => [data.post, ...current]);
@@ -1202,12 +1251,13 @@ export function ThreadPage() {
     };
   }, [postId]);
 
-  const publishReply = async (body) => {
+  const publishReply = async (body, image) => {
     if (!post) return false;
 
     try {
       const { data } = await api.post('/posts', {
         content: body,
+        image: image || undefined,
         visibility: 'PUBLIC',
         parentId: post.id,
       });
@@ -2072,6 +2122,13 @@ export function InstancePage() {
           value={stats.remoteActors ?? '-'}
           detail="Remote actors known by this server"
           accent="text-blue-400"
+        />
+        <InstanceMetric
+          icon={Database}
+          label="Remote posts"
+          value={stats.remotePosts ?? '-'}
+          detail="Federated posts stored on this server"
+          accent="text-violet-400"
         />
         <InstanceMetric
           icon={Gauge}

@@ -58,6 +58,10 @@ router.get('/home', authenticate, async (req, res, next) => {
             remoteAuthorId: { in: remoteAuthorIds },
             visibility: { in: ['PUBLIC', 'UNLISTED'] },
           },
+          {
+            remoteAuthorId: { not: null },
+            visibility: 'PUBLIC',
+          },
         ],
       },
       take: limit + 1,

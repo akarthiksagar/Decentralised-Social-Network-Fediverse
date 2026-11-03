@@ -15,6 +15,7 @@ import {
   truncateNotificationBody,
 } from '../services/notification.service.js';
 import { discoverRemoteActor } from '../services/remoteDiscovery.service.js';
+import { normalizeRemoteImage } from '../services/media.service.js';
 import {
   buildActorUrls,
   serializeActor,
@@ -28,7 +29,8 @@ function getActivityId(activity) {
 }
 
 function getActivityType(activity) {
-  return typeof activity?.type === 'string' ? activity.type : null;
+  if (typeof activity?.type !== 'string') return null;
+  return activity.type.split(/[\/#]/).filter(Boolean).at(-1) || null;
 }
 
 function getActorUrl(activity) {
@@ -39,6 +41,39 @@ function getObjectId(object) {
   if (typeof object === 'string') return object;
   if (typeof object?.id === 'string') return object.id;
   return null;
+}
+
+function isPublicActivity(activity, object) {
+  const recipients = [activity?.to, activity?.cc, object?.to, object?.cc]
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .map((value) => getObjectId(value) || value);
+  return recipients.includes('https://www.w3.org/ns/activitystreams#Public');
+}
+
+async function resolveNoteObject(object) {
+  if (object && typeof object === 'object' && object.type?.split(/[\/#]/).at(-1) === 'Note') {
+    return object;
+  }
+  const objectUrl = typeof object === 'string'
+    ? object
+    : typeof object?.id === 'string'
+      ? object.id
+      : null;
+  if (!objectUrl || !/^https?:\/\//i.test(objectUrl)) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(objectUrl, {
+      headers: { Accept: 'application/activity+json, application/ld+json, application/json' },
+      signal: controller.signal,
+    });
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function parseActorUrl(actorUrl) {
@@ -335,14 +370,20 @@ router.post('/:username/inbox', verifyActivityPubHttpSignature, async (req, res,
     }
 
     if (type === 'Create') {
-      const object = activity.object;
-      const objectType = typeof object?.type === 'string' ? object.type : null;
+      const object = await resolveNoteObject(activity.object);
+      const objectType = typeof object?.type === 'string'
+        ? object.type.split(/[\/#]/).filter(Boolean).at(-1)
+        : null;
 
       if (objectType !== 'Note') {
         return res.status(202).json({ status: 'ignored', reason: 'Only Note objects are stored.' });
       }
+      if (!isPublicActivity(activity, object)) {
+        return res.status(202).json({ status: 'ignored', reason: 'Only public Note objects are stored.' });
+      }
 
       const remoteActor = await upsertRemoteActor(actorUrl, activity.actor);
+      const media = normalizeRemoteImage(object);
       const activityId = getActivityId(activity) || `${actorUrl}/activities/${randomUUID()}`;
       const remoteUrl = getObjectId(object) || activityId;
       const existingPost = await prisma.post.findFirst({
@@ -358,6 +399,8 @@ router.post('/:username/inbox', verifyActivityPubHttpSignature, async (req, res,
       const post = await prisma.post.create({
         data: {
           content: String(object.content || ''),
+          mediaUrl: media.mediaUrl,
+          mediaType: media.mediaType,
           visibility: 'PUBLIC',
           activityId,
           remoteUrl,

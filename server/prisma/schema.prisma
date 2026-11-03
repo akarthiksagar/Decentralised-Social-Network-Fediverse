@@ -43,6 +43,8 @@ model User {
 model Post {
   id         String         @id @default(cuid())
   content    String
+  mediaUrl   String?        @db.Text
+  mediaType  String?
   visibility PostVisibility @default(PUBLIC)
 
   authorId String?

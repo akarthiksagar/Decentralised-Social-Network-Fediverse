@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { getMediaStorageDir } from './services/media.service.js';
 import authRoutes from './routes/auth.routes.js';
 import bookmarkRoutes from './routes/bookmark.routes.js';
 import followRoutes from './routes/follow.routes.js';
@@ -40,6 +41,15 @@ function isAllowedOrigin(origin) {
 
 app.set('trust proxy', 1);
 app.use(helmet());
+app.use('/media', express.static(getMediaStorageDir(), {
+  dotfiles: 'deny',
+  index: false,
+  maxAge: '1y',
+  immutable: true,
+  setHeaders(res) {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  },
+}));
 app.use(
   cors({
     origin(origin, callback) {
@@ -51,7 +61,7 @@ app.use(
 );
 app.use(
   express.json({
-    limit: '1mb',
+    limit: '7mb',
     type: ['application/json', 'application/activity+json', 'application/ld+json'],
     verify: (req, res, buffer) => {
       req.rawBody = buffer;

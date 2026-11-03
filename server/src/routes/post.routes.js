@@ -15,6 +15,7 @@ import {
   truncateNotificationBody,
 } from '../services/notification.service.js';
 import { discoverRemoteActor } from '../services/remoteDiscovery.service.js';
+import { storeImageDataUrl } from '../services/media.service.js';
 import { serializeCreateActivity } from '../utils/activitypub.js';
 import { getJwtSecret } from '../utils/auth.js';
 
@@ -35,6 +36,8 @@ export function serializePost(post) {
   return {
     id: post.id,
     body: post.content,
+    mediaUrl: post.mediaUrl || null,
+    mediaType: post.mediaType || null,
     visibility: post.visibility,
     author: actor?.name || actor?.username || 'Unknown actor',
     username: actor?.username || 'unknown',
@@ -215,11 +218,12 @@ router.delete('/:postId/like', authenticate, async (req, res, next) => {
 router.post('/', authenticate, async (req, res, next) => {
   try {
     const content = String(req.body.content || '').trim();
+    const imageData = req.body.image || null;
     const visibility = normalizeVisibility(req.body.visibility);
     const parentId = req.body.parentId ? String(req.body.parentId) : null;
 
-    if (!content) {
-      return res.status(400).json({ message: 'Post content is required.' });
+    if (!content && !imageData) {
+      return res.status(400).json({ message: 'Add a message or an image to your post.' });
     }
 
     if (content.length > MAX_POST_LENGTH) {
@@ -233,10 +237,13 @@ router.post('/', authenticate, async (req, res, next) => {
       }
     }
 
+    const media = imageData ? await storeImageDataUrl(imageData) : null;
     const actor = await ensureActivityPubIdentity(req.user);
     const post = await prisma.post.create({
       data: {
         content,
+        mediaUrl: media?.mediaUrl,
+        mediaType: media?.mediaType,
         visibility,
         parentId,
         authorId: actor.id,

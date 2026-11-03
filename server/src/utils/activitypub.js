@@ -83,6 +83,15 @@ export function serializeCreateActivity(post) {
       published: post.createdAt,
       to: [PUBLIC_COLLECTION],
       cc: [`${post.author.actorUrl}/followers`],
+      ...(post.mediaUrl
+        ? {
+            attachment: [{
+              type: 'Image',
+              mediaType: post.mediaType || 'image/jpeg',
+              url: post.mediaUrl,
+            }],
+          }
+        : {}),
       url: objectId,
     },
   };

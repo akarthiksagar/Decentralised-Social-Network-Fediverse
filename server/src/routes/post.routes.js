@@ -16,7 +16,11 @@ import {
 } from '../services/notification.service.js';
 import { discoverRemoteActor } from '../services/remoteDiscovery.service.js';
 import { storeImageDataUrl } from '../services/media.service.js';
-import { serializeCreateActivity } from '../utils/activitypub.js';
+import {
+  serializeCreateActivity,
+  serializeLikeActivity,
+  serializeUndoActivity,
+} from '../utils/activitypub.js';
 import { getJwtSecret } from '../utils/auth.js';
 
 const router = Router();
@@ -133,7 +137,7 @@ router.post('/:postId/like', authenticate, async (req, res, next) => {
     const postId = String(req.params.postId);
     const post = await prisma.post.findUnique({
       where: { id: postId },
-      include: { author: true },
+      include: { author: true, remoteAuthor: true },
     });
 
     if (!post) {
@@ -143,6 +147,7 @@ router.post('/:postId/like', authenticate, async (req, res, next) => {
     let liked = true;
     let updatedPost = post;
     let like = null;
+    const actor = post.remoteAuthorId ? await ensureActivityPubIdentity(req.user) : req.user;
 
     try {
       like = await prisma.like.create({
@@ -158,6 +163,19 @@ router.post('/:postId/like', authenticate, async (req, res, next) => {
     } catch (error) {
       if (error.code !== 'P2002') throw error;
       liked = true;
+    }
+
+    if (like && post.remoteAuthorId && post.remoteAuthor) {
+      try {
+        const likeActivity = serializeLikeActivity(actor, post, like.id);
+        const inboxUrl = await getDeliverableInbox(post.remoteAuthor);
+        if (inboxUrl) {
+          await recordOutboundActivity(likeActivity);
+          await enqueueActivityDelivery({ actor, inboxUrl, activity: likeActivity });
+        }
+      } catch (deliveryError) {
+        console.warn(`Unable to send Like for remote post ${post.id}: ${deliveryError.message}`);
+      }
     }
 
     if (like && post.authorId && post.authorId !== req.user.id) {
@@ -187,20 +205,46 @@ router.post('/:postId/like', authenticate, async (req, res, next) => {
 router.delete('/:postId/like', authenticate, async (req, res, next) => {
   try {
     const postId = String(req.params.postId);
-    const deleted = await prisma.like.deleteMany({
-      where: {
-        userId: req.user.id,
-        postId,
-      },
-    });
+    const [like, post] = await Promise.all([
+      prisma.like.findUnique({
+        where: { userId_postId: { userId: req.user.id, postId } },
+      }),
+      prisma.post.findUnique({
+        where: { id: postId },
+        include: { remoteAuthor: true },
+      }),
+    ]);
 
-    let post = await prisma.post.findUnique({ where: { id: postId } });
     if (!post) {
       return res.status(404).json({ message: 'Post not found.' });
     }
 
+    const deleted = like
+      ? await prisma.like.deleteMany({ where: { userId: req.user.id, postId } })
+      : { count: 0 };
+
+    if (deleted.count > 0 && post.remoteAuthor) {
+      try {
+        const actor = await ensureActivityPubIdentity(req.user);
+        const inboxUrl = await getDeliverableInbox(post.remoteAuthor);
+        if (inboxUrl) {
+          const undoActivity = serializeUndoActivity(actor, {
+            id: `${actor.actorUrl}/likes/${like.id}`,
+            type: 'Like',
+            actor: actor.actorUrl,
+            object: post.remoteUrl || post.activityId,
+          });
+          await recordOutboundActivity(undoActivity);
+          await enqueueActivityDelivery({ actor, inboxUrl, activity: undoActivity });
+        }
+      } catch (deliveryError) {
+        console.warn(`Unable to send Undo Like for remote post ${post.id}: ${deliveryError.message}`);
+      }
+    }
+
+    let updatedPost = post;
     if (deleted.count > 0) {
-      post = await prisma.post.update({
+      updatedPost = await prisma.post.update({
         where: { id: postId },
         data: { likeCount: { decrement: post.likeCount > 0 ? 1 : 0 } },
       });
@@ -208,7 +252,7 @@ router.delete('/:postId/like', authenticate, async (req, res, next) => {
 
     return res.json({
       liked: false,
-      likes: post.likeCount,
+      likes: updatedPost.likeCount,
     });
   } catch (error) {
     next(error);

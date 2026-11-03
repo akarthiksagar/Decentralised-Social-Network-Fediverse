@@ -109,6 +109,19 @@ export function serializeFollowActivity(localActor, remoteActor) {
   };
 }
 
+export function serializeLikeActivity(localActor, post, likeId = randomUUID()) {
+  const actorUrl = localActor.actorUrl || buildActorUrls(localActor.username).actorUrl;
+  const objectId = post.remoteUrl || post.activityId;
+
+  return {
+    '@context': ACTIVITYSTREAMS_CONTEXT,
+    id: `${actorUrl}/likes/${likeId}`,
+    type: 'Like',
+    actor: actorUrl,
+    object: objectId,
+  };
+}
+
 export function serializeUndoActivity(localActor, objectActivity) {
   const actorUrl = localActor.actorUrl || buildActorUrls(localActor.username).actorUrl;
 

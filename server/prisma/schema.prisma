@@ -69,6 +69,7 @@ model Post {
 
   bookmarks Bookmark[]
   likes     Like[]
+  remoteLikes RemoteLike[]
 
   @@index([authorId])
   @@index([remoteAuthorId])
@@ -120,6 +121,7 @@ model RemoteActor {
   posts          Post[]
   inboundFollows RemoteFollow[]
   localFollowers RemoteFollowing[]
+  likes          RemoteLike[]
 
   @@index([server])
 }
@@ -232,6 +234,21 @@ model Like {
   @@unique([userId, postId])
   @@index([userId, createdAt])
   @@index([postId])
+}
+
+model RemoteLike {
+  id            String   @id @default(cuid())
+  activityId    String   @unique
+  remoteActorId String
+  postId        String
+  createdAt     DateTime @default(now())
+
+  remoteActor RemoteActor @relation(fields: [remoteActorId], references: [id], onDelete: Cascade)
+  post        Post        @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([remoteActorId, postId])
+  @@index([postId])
+  @@index([remoteActorId])
 }
 
 model InstanceDirectoryEntry {

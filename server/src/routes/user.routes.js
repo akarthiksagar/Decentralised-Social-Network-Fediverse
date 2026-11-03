@@ -77,6 +77,24 @@ async function resolveNoteObject(object) {
   }
 }
 
+async function findPostForActivityObject(localActor, objectId) {
+  if (!objectId) return null;
+
+  const post = await prisma.post.findFirst({
+    where: { OR: [{ activityId: objectId }, { remoteUrl: objectId }] },
+  });
+  if (post) return post;
+
+  const localStatusPrefix = `${localActor.actorUrl}/statuses/`;
+  if (!objectId.startsWith(localStatusPrefix)) return null;
+
+  const postId = objectId.slice(localStatusPrefix.length);
+  if (!postId || postId.includes('/')) return null;
+  return prisma.post.findFirst({
+    where: { id: postId, authorId: localActor.id },
+  });
+}
+
 function parseActorUrl(actorUrl) {
   try {
     const url = new URL(actorUrl);
@@ -303,6 +321,43 @@ router.post('/:username/inbox', verifyActivityPubHttpSignature, async (req, res,
       const objectActorUrl = getActorUrl(object) || actorUrl;
       const objectTarget = typeof object === 'object' ? getObjectId(object.object) : null;
 
+      if (objectId && objectType === 'Like') {
+        const remoteActor = await upsertRemoteActor(actorUrl, activity.actor);
+        const existingRemoteLike = await prisma.remoteLike.findFirst({
+          where: { activityId: objectId, remoteActorId: remoteActor.id },
+          select: { postId: true },
+        });
+        const removed = await prisma.remoteLike.deleteMany({
+          where: { activityId: objectId, remoteActorId: remoteActor.id },
+        });
+        if (removed.count && existingRemoteLike) {
+          await prisma.post.updateMany({
+            where: { id: existingRemoteLike.postId, likeCount: { gt: 0 } },
+            data: { likeCount: { decrement: 1 } },
+          });
+        }
+
+        return res.status(202).json({ status: 'undone', type: 'Like', removed: removed.count });
+      }
+
+      if (objectId && !objectType) {
+        const remoteActor = await upsertRemoteActor(actorUrl, activity.actor);
+        const existingRemoteLike = await prisma.remoteLike.findFirst({
+          where: { activityId: objectId, remoteActorId: remoteActor.id },
+          select: { postId: true },
+        });
+        if (existingRemoteLike) {
+          await prisma.remoteLike.deleteMany({
+            where: { activityId: objectId, remoteActorId: remoteActor.id },
+          });
+          await prisma.post.updateMany({
+            where: { id: existingRemoteLike.postId, likeCount: { gt: 0 } },
+            data: { likeCount: { decrement: 1 } },
+          });
+          return res.status(202).json({ status: 'undone', type: 'Like', removed: 1 });
+        }
+      }
+
       if (objectType === 'Follow' || objectId) {
         if (objectTarget && objectTarget !== localActor.actorUrl) {
           return res.status(400).json({ message: 'Undo activity object does not target this actor.' });
@@ -368,6 +423,42 @@ router.post('/:username/inbox', verifyActivityPubHttpSignature, async (req, res,
         status: 'accepted',
         updated: updateResult.count,
       });
+    }
+
+    if (type === 'Like') {
+      const post = await findPostForActivityObject(localActor, getObjectId(activity.object));
+      if (!post || post.authorId !== localActor.id) {
+        return res.status(202).json({ status: 'ignored', reason: 'Liked post is not hosted by this actor.' });
+      }
+
+      const remoteActor = await upsertRemoteActor(actorUrl, activity.actor);
+      const activityId = getActivityId(activity) || `${actorUrl}/likes/${randomUUID()}`;
+      const existingLike = await prisma.remoteLike.findFirst({
+        where: {
+          OR: [{ activityId }, { remoteActorId: remoteActor.id, postId: post.id }],
+        },
+      });
+      if (existingLike) return res.status(202).json({ status: 'duplicate' });
+
+      await prisma.$transaction([
+        prisma.remoteLike.create({
+          data: { activityId, remoteActorId: remoteActor.id, postId: post.id },
+        }),
+        prisma.post.update({
+          where: { id: post.id },
+          data: { likeCount: { increment: 1 } },
+        }),
+      ]);
+
+      await createNotification(prisma, {
+        userId: localActor.id,
+        type: 'LIKE',
+        actorUrl: remoteActor.actorUrl,
+        title: `${actorDisplayName(remoteActor)} liked your post`,
+        body: truncateNotificationBody(post.content),
+        data: { postId: post.id, remoteActorId: remoteActor.id },
+      });
+      return res.status(202).json({ status: 'stored' });
     }
 
     if (type === 'Create') {

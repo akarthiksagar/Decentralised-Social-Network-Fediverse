@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import http from 'node:http';
 import { Worker } from 'bullmq';
 import { prisma } from '../db.js';
 import {
@@ -53,6 +54,9 @@ async function deliverActivity(job) {
 const worker = new Worker(DELIVERY_QUEUE_NAME, deliverActivity, {
   connection,
   concurrency: Number(process.env.FEDERATION_DELIVERY_CONCURRENCY || 5),
+  drainDelay: 30,          // Wait 30s between polls when queue is empty
+  stalledInterval: 300000, // Check for stalled jobs every 5 minutes
+  maxStalledCount: 1,
 });
 
 worker.on('failed', async (job, error) => {
@@ -76,7 +80,19 @@ worker.on('completed', (job) => {
 
 console.log(`ActivityPub delivery worker listening on queue "${DELIVERY_QUEUE_NAME}"`);
 
+// Minimal HTTP server so Render's Web Service port scan succeeds
+const PORT = Number(process.env.PORT || 3001);
+const healthServer = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok', queue: DELIVERY_QUEUE_NAME }));
+});
+
+healthServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`Worker health-check server bound to 0.0.0.0:${PORT}`);
+});
+
 async function shutdown() {
+  healthServer.close();
   await worker.close();
   await connection.quit();
   await prisma.$disconnect();

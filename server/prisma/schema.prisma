@@ -70,6 +70,7 @@ model Post {
   bookmarks Bookmark[]
   likes     Like[]
   remoteLikes RemoteLike[]
+  mediaAsset PostMedia?
 
   @@index([authorId])
   @@index([remoteAuthorId])
@@ -249,6 +250,15 @@ model RemoteLike {
   @@unique([remoteActorId, postId])
   @@index([postId])
   @@index([remoteActorId])
+}
+
+model PostMedia {
+  postId    String   @id
+  mediaType String
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
 }
 
 model InstanceDirectoryEntry {

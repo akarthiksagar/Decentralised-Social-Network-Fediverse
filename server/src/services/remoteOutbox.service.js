@@ -1,9 +1,14 @@
 import { randomUUID } from 'crypto';
 import { prisma } from '../db.js';
-import { normalizeRemoteImage } from './media.service.js';
+import {
+  cacheRemoteImage,
+  getPostMediaUrl,
+  normalizeRemoteImage,
+} from './media.service.js';
 
 const FETCH_TIMEOUT_MS = Number(process.env.FEDERATION_DISCOVERY_TIMEOUT_MS || 5000);
 const MAX_OUTBOX_ITEMS = 40;
+const MAX_CACHED_REMOTE_IMAGES = 3;
 const PUBLIC_COLLECTION = 'https://www.w3.org/ns/activitystreams#Public';
 const SYNC_TTL_MS = 10 * 60 * 1000;
 const FAILED_SYNC_TTL_MS = 60 * 1000;
@@ -119,6 +124,7 @@ async function importRecentOutboxItems(remoteActor) {
 
   const items = await getOutboxItems(remoteActor.outboxUrl);
   let stored = 0;
+  let imageCacheAttempts = 0;
 
   for (const item of items) {
     const note = await resolveNoteFromActivity(item);
@@ -128,7 +134,17 @@ async function importRecentOutboxItems(remoteActor) {
     if (attributedTo && attributedTo !== remoteActor.actorUrl) continue;
 
     const remoteUrl = getId(note);
-    const media = normalizeRemoteImage(note);
+    const remoteImage = normalizeRemoteImage(note);
+    let media = { mediaUrl: remoteImage.mediaUrl, mediaType: remoteImage.mediaType, bytes: null };
+    if (remoteImage.mediaUrl && imageCacheAttempts < MAX_CACHED_REMOTE_IMAGES) {
+      imageCacheAttempts += 1;
+      try {
+        const cached = await cacheRemoteImage(remoteImage.mediaUrl);
+        media = { mediaType: cached.mediaType, bytes: cached.bytes };
+      } catch (error) {
+        console.warn(`Unable to cache remote image ${remoteImage.mediaUrl}: ${error.message}`);
+      }
+    }
     const activityId = getId(item) || remoteUrl || `${remoteActor.actorUrl}/activities/${randomUUID()}`;
     const existing = await prisma.post.findFirst({
       where: { OR: [{ activityId }, ...(remoteUrl ? [{ remoteUrl }] : [])] },
@@ -136,11 +152,16 @@ async function importRecentOutboxItems(remoteActor) {
     });
     if (existing) continue;
 
+    const postId = randomUUID();
     await prisma.post.create({
       data: {
+        id: postId,
         content: typeof note.content === 'string' ? note.content : '',
-        mediaUrl: media.mediaUrl,
+        mediaUrl: media.bytes ? getPostMediaUrl(postId) : media.mediaUrl,
         mediaType: media.mediaType,
+        ...(media.bytes
+          ? { mediaAsset: { create: { mediaType: media.mediaType, data: media.bytes } } }
+          : {}),
         visibility: 'PUBLIC',
         activityId,
         remoteUrl,

@@ -2,7 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import { getMediaStorageDir } from './services/media.service.js';
+import { prisma } from './db.js';
+import {
+  cacheRemoteImage,
+  getMediaStorageDir,
+  getPostMediaUrl,
+} from './services/media.service.js';
 import authRoutes from './routes/auth.routes.js';
 import bookmarkRoutes from './routes/bookmark.routes.js';
 import followRoutes from './routes/follow.routes.js';
@@ -41,6 +46,55 @@ function isAllowedOrigin(origin) {
 
 app.set('trust proxy', 1);
 app.use(helmet());
+app.get('/media/:postId', async (req, res, next) => {
+  try {
+    const post = await prisma.post.findUnique({
+      where: { id: String(req.params.postId) },
+      select: {
+        id: true,
+        mediaUrl: true,
+        remoteAuthorId: true,
+        mediaAsset: { select: { data: true, mediaType: true } },
+      },
+    });
+    if (!post) return next();
+
+    let asset = post.mediaAsset;
+    if (!asset && post.remoteAuthorId && /^https:\/\//i.test(post.mediaUrl || '')) {
+      try {
+        const cached = await cacheRemoteImage(post.mediaUrl);
+        asset = { data: cached.bytes, mediaType: cached.mediaType };
+        await prisma.$transaction([
+          prisma.postMedia.upsert({
+            where: { postId: post.id },
+            update: { mediaType: asset.mediaType, data: asset.bytes },
+            create: { postId: post.id, mediaType: asset.mediaType, data: asset.bytes },
+          }),
+          prisma.post.update({
+            where: { id: post.id },
+            data: { mediaUrl: getPostMediaUrl(post.id), mediaType: asset.mediaType },
+          }),
+        ]);
+      } catch (error) {
+        console.warn(`Unable to load media for post ${post.id}: ${error.message}`);
+        return res.status(502).json({ message: 'Remote image is currently unavailable.' });
+      }
+    }
+
+    if (!asset?.data || !asset.mediaType) return next();
+
+    res.set({
+      'Content-Type': asset.mediaType,
+      'Content-Length': String(asset.data.length),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return res.status(200).send(Buffer.from(asset.data));
+  } catch (error) {
+    return next(error);
+  }
+});
 app.use('/media', express.static(getMediaStorageDir(), {
   dotfiles: 'deny',
   index: false,

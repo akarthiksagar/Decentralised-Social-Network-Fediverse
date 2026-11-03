@@ -15,7 +15,11 @@ import {
   truncateNotificationBody,
 } from '../services/notification.service.js';
 import { discoverRemoteActor } from '../services/remoteDiscovery.service.js';
-import { normalizeRemoteImage } from '../services/media.service.js';
+import {
+  cacheRemoteImage,
+  getPostMediaUrl,
+  normalizeRemoteImage,
+} from '../services/media.service.js';
 import {
   buildActorUrls,
   serializeActor,
@@ -473,7 +477,16 @@ router.post('/:username/inbox', verifyActivityPubHttpSignature, async (req, res,
       }
 
       const remoteActor = await upsertRemoteActor(actorUrl, activity.actor);
-      const media = normalizeRemoteImage(object);
+      const remoteImage = normalizeRemoteImage(object);
+      let media = { mediaUrl: remoteImage.mediaUrl, mediaType: remoteImage.mediaType, bytes: null };
+      if (remoteImage.mediaUrl) {
+        try {
+          const cached = await cacheRemoteImage(remoteImage.mediaUrl);
+          media = { mediaType: cached.mediaType, bytes: cached.bytes };
+        } catch (error) {
+          console.warn(`Unable to cache remote image ${remoteImage.mediaUrl}: ${error.message}`);
+        }
+      }
       const activityId = getActivityId(activity) || `${actorUrl}/activities/${randomUUID()}`;
       const remoteUrl = getObjectId(object) || activityId;
       const existingPost = await prisma.post.findFirst({
@@ -486,11 +499,16 @@ router.post('/:username/inbox', verifyActivityPubHttpSignature, async (req, res,
         return res.status(202).json({ status: 'duplicate' });
       }
 
+      const postId = randomUUID();
       const post = await prisma.post.create({
         data: {
+          id: postId,
           content: String(object.content || ''),
-          mediaUrl: media.mediaUrl,
+          mediaUrl: media.bytes ? getPostMediaUrl(postId) : media.mediaUrl,
           mediaType: media.mediaType,
+          ...(media.bytes
+            ? { mediaAsset: { create: { mediaType: media.mediaType, data: media.bytes } } }
+            : {}),
           visibility: 'PUBLIC',
           activityId,
           remoteUrl,

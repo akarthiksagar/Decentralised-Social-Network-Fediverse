@@ -119,6 +119,7 @@ export function serializeLikeActivity(localActor, post, likeId = randomUUID()) {
     type: 'Like',
     actor: actorUrl,
     object: objectId,
+    ...(post.remoteAuthor?.actorUrl ? { to: [post.remoteAuthor.actorUrl] } : {}),
   };
 }
 

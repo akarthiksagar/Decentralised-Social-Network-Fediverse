@@ -15,7 +15,7 @@ import {
   truncateNotificationBody,
 } from '../services/notification.service.js';
 import { discoverRemoteActor } from '../services/remoteDiscovery.service.js';
-import { storeImageDataUrl } from '../services/media.service.js';
+import { getPostMediaUrl, parseImageDataUrl } from '../services/media.service.js';
 import {
   serializeCreateActivity,
   serializeLikeActivity,
@@ -40,7 +40,9 @@ export function serializePost(post) {
   return {
     id: post.id,
     body: post.content,
-    mediaUrl: post.mediaUrl || null,
+    mediaUrl: post.remoteAuthorId && post.mediaUrl
+      ? getPostMediaUrl(post.id)
+      : post.mediaUrl || null,
     mediaType: post.mediaType || null,
     visibility: post.visibility,
     author: actor?.name || actor?.username || 'Unknown actor',
@@ -281,13 +283,18 @@ router.post('/', authenticate, async (req, res, next) => {
       }
     }
 
-    const media = imageData ? await storeImageDataUrl(imageData) : null;
+    const media = imageData ? parseImageDataUrl(imageData) : null;
     const actor = await ensureActivityPubIdentity(req.user);
+    const postId = randomUUID();
     const post = await prisma.post.create({
       data: {
+        id: postId,
         content,
-        mediaUrl: media?.mediaUrl,
+        mediaUrl: media ? getPostMediaUrl(postId) : null,
         mediaType: media?.mediaType,
+        ...(media
+          ? { mediaAsset: { create: { mediaType: media.mediaType, data: media.bytes } } }
+          : {}),
         visibility,
         parentId,
         authorId: actor.id,
